@@ -1,0 +1,56 @@
+[project]
+name = "financial-agent"
+version = "2.0.0"
+description = "Financial Report Agent for Professional Fund Managers"
+authors = [{name = "Your Name", email = "your.email@example.com"}]
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "fastapi>=0.109.0",
+    "uvicorn[standard]>=0.27.0",
+    "pydantic>=2.5.3",
+    "pydantic-settings>=2.1.0",
+    "langchain>=0.1.5",
+    "langchain-core>=0.1.15",
+    "langchain-openai>=0.0.5",
+    "langgraph>=0.0.20",
+    "pandas>=2.1.4",
+    "numpy>=1.26.3",
+    "httpx>=0.26.0",
+    "python-multipart>=0.0.6",
+    "python-dotenv>=1.0.0",
+    "streamlit>=1.31.0",
+    "plotly>=5.18.0",
+    "altair>=5.2.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.3",
+    "pytest-asyncio>=0.21.1",
+    "pytest-cov>=4.1.0",
+    "black>=23.12.1",
+    "flake8>=7.0.0",
+    "mypy>=1.8.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["app", "ui"]
+
+[tool.black]
+line-length = 100
+target-version = ['py310']
+
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
