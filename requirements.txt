@@ -4,9 +4,14 @@ uvicorn[standard]==0.27.0
 pydantic==2.5.3
 pydantic-settings==2.1.0
 
+# Streamlit UI
+streamlit==1.31.0
+plotly==5.18.0
+altair==5.2.0
+
 # LangChain & LangGraph
 langchain==0.1.5
-langchain-core==0.1.15
+langchain-core==0.1.16
 langchain-openai==0.0.5
 langgraph==0.0.20
 
