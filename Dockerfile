@@ -6,24 +6,28 @@ FROM python:3.10-slim as base
 # Set environment variables
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    PIP_NO_CACHE_DIR=1 \
-    PIP_DISABLE_PIP_VERSION_CHECK=1
+    UV_SYSTEM_PYTHON=1 \
+    UV_COMPILE_BYTECODE=1
 
 # Set working directory
 WORKDIR /app
 
-# Install system dependencies
+# Install system dependencies and uv
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     build-essential \
     curl \
+    && curl -LsSf https://astral.sh/uv/install.sh | sh \
     && rm -rf /var/lib/apt/lists/*
+
+# Add uv to PATH
+ENV PATH="/root/.local/bin:$PATH"
 
 # Copy dependency files
 COPY requirements.txt pyproject.toml ./
 
-# Install Python dependencies
-RUN pip install --no-cache-dir -r requirements.txt
+# Install Python dependencies with uv
+RUN uv pip install --system -r requirements.txt
 
 # Copy application code
 COPY app/ ./app/

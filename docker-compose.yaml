@@ -11,8 +11,8 @@ services:
     environment:
       # LLM Configuration
       - OPENAI_API_KEY=${OPENAI_API_KEY}
-      - LLM_MODEL=${LLM_MODEL:-gpt-4-turbo-preview}
-      - LLM_TEMPERATURE=${LLM_TEMPERATURE:-0.0}
+      - LLM_MODEL=${LLM_MODEL:-gpt-3.5-turbo}
+      - LLM_TEMPERATURE=${LLM_TEMPERATURE:-1.0}
       
       # Data Configuration
       - DATA_DIR=/app/data
@@ -50,8 +50,8 @@ services:
     environment:
       # LLM Configuration
       - OPENAI_API_KEY=${OPENAI_API_KEY}
-      - LLM_MODEL=${LLM_MODEL:-gpt-4-turbo-preview}
-      - LLM_TEMPERATURE=${LLM_TEMPERATURE:-0.0}
+      - LLM_MODEL=${LLM_MODEL:-gpt-3.5-turbo}
+      - LLM_TEMPERATURE=${LLM_TEMPERATURE:-1.0}
       
       # Data Configuration
       - DATA_DIR=/app/data
