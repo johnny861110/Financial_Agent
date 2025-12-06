@@ -7,6 +7,12 @@ from app.agents.workflow import FinancialAgent
 from app.core.config import get_settings
 
 
+@st.cache_resource
+def get_agent():
+    """Get or create agent instance."""
+    return FinancialAgent()
+
+
 def show():
     """Display AI agent chat interface."""
     
@@ -22,7 +28,7 @@ def show():
     if "agent" not in st.session_state:
         try:
             settings = get_settings()
-            st.session_state.agent = FinancialAgent()
+            st.session_state.agent = get_agent()
             st.session_state.agent_ready = True
         except Exception as e:
             st.session_state.agent_ready = False
@@ -132,41 +138,50 @@ def show():
         with st.chat_message("assistant"):
             with st.spinner("🤔 Analyzing..."):
                 try:
-                    # Call agent
-                    response = st.session_state.agent.query(
+                    # Prepare query object
+                    from app.models.agent_models import AgentQuery
+                    
+                    agent_query = AgentQuery(
                         query=query_input,
-                        company_ticker=company_ticker,
-                        company_name=company_name
+                        stock_code=company_ticker,
+                        period="",  # Will be extracted from query if needed
+                        context={"company_name": company_name}
                     )
                     
+                    # Call agent
+                    response = st.session_state.agent.query(agent_query)
+                    
                     # Display response
-                    st.markdown(response.get("answer", "No response generated."))
+                    st.markdown(response.answer if hasattr(response, 'answer') else response.get("answer", "No response generated."))
                     
                     # Display analysis steps if available
-                    if "steps" in response and response["steps"]:
+                    analysis_steps = response.analysis_steps if hasattr(response, 'analysis_steps') else response.get("steps", [])
+                    if analysis_steps:
                         with st.expander("🔬 Analysis Steps"):
-                            for idx, step in enumerate(response["steps"], 1):
+                            for idx, step in enumerate(analysis_steps, 1):
                                 st.markdown(f"**Step {idx}**: {step}")
                     
                     # Display data used
-                    if "data" in response and response["data"]:
+                    data_used = response.data if hasattr(response, 'data') else response.get("data", {})
+                    if data_used:
                         with st.expander("📊 Data Used"):
-                            st.json(response["data"])
+                            st.json(data_used)
                     
-                    # Display tools invoked
-                    if "tools_used" in response and response["tools_used"]:
-                        with st.expander("🛠️ Tools Invoked"):
-                            for tool in response["tools_used"]:
-                                st.markdown(f"- `{tool}`")
+                    # Display sources
+                    sources = response.sources if hasattr(response, 'sources') else response.get("sources", [])
+                    if sources:
+                        with st.expander("🛠️ Data Sources"):
+                            for source in sources:
+                                st.markdown(f"- `{source}`")
                     
                     # Add assistant message to chat
                     st.session_state.messages.append({
                         "role": "assistant",
-                        "content": response.get("answer", "No response"),
+                        "content": response.answer if hasattr(response, 'answer') else response.get("answer", "No response"),
                         "metadata": {
-                            "steps": response.get("steps", []),
-                            "tools_used": response.get("tools_used", []),
-                            "confidence": response.get("confidence", "N/A")
+                            "steps": analysis_steps,
+                            "sources": sources,
+                            "confidence": response.confidence if hasattr(response, 'confidence') else response.get("confidence", "N/A")
                         },
                         "timestamp": datetime.now().isoformat()
                     })
