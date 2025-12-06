@@ -88,21 +88,22 @@ class FinancialAgent:
         # In production, would use LLM-based classification
         query_lower = query.lower()
         
-        if any(word in query_lower for word in ["trend", "over time", "historical", "growth"]):
+        # Check more specific intents first to avoid false matches
+        if any(word in query_lower for word in ["roic", "wacc", "value creation", "return on capital"]):
+            intent = "roic_wacc"
+        elif any(word in query_lower for word in ["earnings quality", "accrual", "cash flow"]):
+            intent = "earnings_quality"
+        elif any(word in query_lower for word in ["capital allocation", "dividend", "buyback", "capex"]):
+            intent = "capital_allocation"
+        elif any(word in query_lower for word in ["trend", "over time", "historical", "growth"]):
             intent = "trend"
         elif any(word in query_lower for word in ["compare", "peer", "vs", "versus", "against"]):
             intent = "peer"
         elif any(word in query_lower for word in ["management", "governance", "ceo", "board"]):
             intent = "management"
-        elif any(word in query_lower for word in ["earnings quality", "accrual", "cash flow"]):
-            intent = "earnings_quality"
-        elif any(word in query_lower for word in ["roic", "wacc", "value creation", "return on capital"]):
-            intent = "roic_wacc"
-        elif any(word in query_lower for word in ["factor", "exposure", "quality", "value", "momentum"]):
+        elif any(word in query_lower for word in ["factor", "exposure"]):
             intent = "factor"
-        elif any(word in query_lower for word in ["capital allocation", "dividend", "buyback", "capex"]):
-            intent = "capital_allocation"
-        elif any(word in query_lower for word in ["risk", "warning", "red flag", "concern"]):
+        elif any(word in query_lower for word in ["risk", "warning", "red flag", "concern", "alert"]):
             intent = "ews"
         else:
             intent = "snapshot"
