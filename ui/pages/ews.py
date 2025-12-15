@@ -69,35 +69,35 @@ def show():
             
             # Liquidity checks
             if current_ratio < 1.0:
-                signals.append({"signal": "Low Current Ratio", "severity": "high", "description": f"Current ratio {current_ratio:.2f} below 1.0"})
+                signals.append({"signal_name": "Low Current Ratio", "severity": "high", "current_value": current_ratio, "threshold_value": 1.0, "description": f"Current ratio {current_ratio:.2f} below 1.0"})
             if quick_ratio < 0.5:
-                signals.append({"signal": "Liquidity Crisis", "severity": "critical", "description": f"Quick ratio {quick_ratio:.2f} critically low"})
+                signals.append({"signal_name": "Liquidity Crisis", "severity": "critical", "current_value": quick_ratio, "threshold_value": 0.5, "description": f"Quick ratio {quick_ratio:.2f} critically low"})
             
             # Leverage checks
             if debt_to_equity > 2.0:
-                signals.append({"signal": "High Leverage", "severity": "high", "description": f"D/E ratio {debt_to_equity:.2f} exceeds 2.0"})
+                signals.append({"signal_name": "High Leverage", "severity": "high", "current_value": debt_to_equity, "threshold_value": 2.0, "description": f"D/E ratio {debt_to_equity:.2f} exceeds 2.0"})
             if interest_coverage < 2.0:
-                signals.append({"signal": "Interest Coverage Risk", "severity": "high", "description": f"Coverage {interest_coverage:.2f}x below safe level"})
+                signals.append({"signal_name": "Interest Coverage Risk", "severity": "high", "current_value": interest_coverage, "threshold_value": 2.0, "description": f"Coverage {interest_coverage:.2f}x below safe level"})
             
             # Profitability checks
             if revenue_growth < -10:
-                signals.append({"signal": "Revenue Decline", "severity": "medium", "description": f"Revenue declining {revenue_growth:.1f}% YoY"})
+                signals.append({"signal_name": "Revenue Decline", "severity": "medium", "current_value": revenue_growth, "threshold_value": -10.0, "description": f"Revenue declining {revenue_growth:.1f}% YoY"})
             if earnings_decline >= 2:
-                signals.append({"signal": "Earnings Deterioration", "severity": "high", "description": f"{earnings_decline} quarters of declining earnings"})
+                signals.append({"signal_name": "Earnings Deterioration", "severity": "high", "current_value": float(earnings_decline), "threshold_value": 2.0, "description": f"{earnings_decline} quarters of declining earnings"})
             if fcf_margin < 0:
-                signals.append({"signal": "Negative FCF", "severity": "critical", "description": "Company burning cash"})
+                signals.append({"signal_name": "Negative FCF", "severity": "critical", "current_value": fcf_margin, "threshold_value": 0.0, "description": "Company burning cash"})
             
             # Governance checks
             if covenant_breach:
-                signals.append({"signal": "Covenant Breach", "severity": "critical", "description": "Debt covenant violation detected"})
+                signals.append({"signal_name": "Covenant Breach", "severity": "critical", "current_value": 1.0, "threshold_value": 0.0, "description": "Debt covenant violation detected"})
             if audit_qualification:
-                signals.append({"signal": "Audit Issues", "severity": "critical", "description": "Qualified audit opinion"})
+                signals.append({"signal_name": "Audit Issues", "severity": "critical", "current_value": 1.0, "threshold_value": 0.0, "description": "Qualified audit opinion"})
             if management_turnover:
-                signals.append({"signal": "Management Turnover", "severity": "medium", "description": "Key management changes"})
+                signals.append({"signal_name": "Management Turnover", "severity": "medium", "current_value": 1.0, "threshold_value": 0.0, "description": "Key management changes"})
             
             # Analyst sentiment
             if analyst_downgrades >= 3:
-                signals.append({"signal": "Analyst Downgrades", "severity": "medium", "description": f"{analyst_downgrades} downgrades in 3 months"})
+                signals.append({"signal_name": "Analyst Downgrades", "severity": "medium", "current_value": float(analyst_downgrades), "threshold_value": 3.0, "description": f"{analyst_downgrades} downgrades in 3 months"})
             
             # Determine overall level
             critical_count = sum(1 for s in signals if s.get('severity') == 'critical')
@@ -116,6 +116,7 @@ def show():
                 warning_level=overall_level,
                 triggered_signals=signals,
                 recommendation=f"Total of {len(signals)} warning signals detected. Review financial health metrics closely and consider risk mitigation strategies.",
+                recommendations=[f"Total of {len(signals)} warning signals detected", "Review financial health metrics closely", "Consider risk mitigation strategies"],
                 commentary=f"Early warning system detected {len(signals)} signals at {overall_level} level."
             )
             
@@ -142,7 +143,7 @@ def display_warning_results(warnings):
         st.metric("Total Signals", len(warnings.triggered_signals))
     
     with col3:
-        critical_count = sum(1 for s in warnings.triggered_signals if s.get('severity') == 'critical')
+        critical_count = sum(1 for s in warnings.triggered_signals if s.severity == 'critical')
         st.metric("Critical Signals", critical_count)
     
     # Warning level gauge
@@ -189,9 +190,9 @@ def display_warning_results(warnings):
         st.subheader("🚩 Triggered Warning Signals")
         
         # Group by severity
-        critical_signals = [s for s in warnings.triggered_signals if s.get('severity') == 'critical']
-        high_signals = [s for s in warnings.triggered_signals if s.get('severity') == 'high']
-        medium_signals = [s for s in warnings.triggered_signals if s.get('severity') == 'medium']
+        critical_signals = [s for s in warnings.triggered_signals if s.severity == 'critical']
+        high_signals = [s for s in warnings.triggered_signals if s.severity == 'high']
+        medium_signals = [s for s in warnings.triggered_signals if s.severity == 'medium']
         
         if critical_signals:
             st.error("**CRITICAL SIGNALS**")
@@ -259,8 +260,8 @@ def display_signal(signal, severity):
         col1, col2 = st.columns([4, 1])
         
         with col1:
-            st.markdown(f"{severity_emoji.get(severity, '⚪')} **{signal.get('signal', 'Warning')}**")
-            st.caption(signal.get('description', 'No description'))
+            st.markdown(f"{severity_emoji.get(severity, '⚪')} **{signal.signal_name}**")
+            st.caption(signal.description)
         
         with col2:
             st.caption(f"Severity: {severity.upper()}")
@@ -276,8 +277,8 @@ def display_signal_timeline(signals):
     for idx, signal in enumerate(signals):
         timeline_data.append({
             "Date": (base_date - timedelta(days=idx*7)).strftime("%Y-%m-%d"),
-            "Signal": signal.get('signal', 'Warning'),
-            "Severity": signal.get('severity', 'medium').upper(),
+            "Signal": signal.signal_name,
+            "Severity": signal.severity.upper(),
             "Status": "Active"
         })
     
@@ -375,13 +376,13 @@ def get_action_plan(warnings):
         ])
     
     # Add signal-specific actions
-    if any(s.get('signal') == 'Liquidity Crisis' for s in warnings.triggered_signals):
+    if any(s.signal_name == 'Liquidity Crisis' for s in warnings.triggered_signals):
         actions.append("💰 Priority: Address liquidity issues through working capital optimization or financing")
     
-    if any(s.get('signal') == 'Covenant Breach' for s in warnings.triggered_signals):
+    if any(s.signal_name == 'Covenant Breach' for s in warnings.triggered_signals):
         actions.append("📄 Priority: Engage with lenders immediately to negotiate covenant waivers")
     
-    if any(s.get('signal') == 'Audit Issues' for s in warnings.triggered_signals):
+    if any(s.signal_name == 'Audit Issues' for s in warnings.triggered_signals):
         actions.append("🔍 Priority: Work with auditors to resolve qualification issues")
     
     return actions

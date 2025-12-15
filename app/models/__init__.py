@@ -18,19 +18,19 @@ class FinancialSnapshot(BaseModel):
     unit: str = "thousand"
     
     # Balance Sheet
-    cash_and_equivalents: float
-    accounts_receivable: float
-    inventory: float
-    total_assets: float
-    total_liabilities: float
-    equity: float
+    cash_and_equivalents: Optional[float] = None
+    accounts_receivable: Optional[float] = None
+    inventory: Optional[float] = None
+    total_assets: Optional[float] = None
+    total_liabilities: Optional[float] = None
+    equity: Optional[float] = None
     
     # Income Statement
-    net_revenue: float
-    gross_profit: float
-    operating_income: float
-    net_income: float
-    eps: float
+    net_revenue: Optional[float] = None
+    gross_profit: Optional[float] = None
+    operating_income: Optional[float] = None
+    net_income: Optional[float] = None
+    eps: Optional[float] = None
     
     # Optional fields for deeper analysis
     current_assets: Optional[float] = None
@@ -46,7 +46,7 @@ class FinancialSnapshot(BaseModel):
     @property
     def gross_margin(self) -> float:
         """Gross profit margin percentage."""
-        if self.net_revenue == 0:
+        if not self.net_revenue or not self.gross_profit or self.net_revenue == 0:
             return 0.0
         return (self.gross_profit / self.net_revenue) * 100
     
@@ -54,7 +54,7 @@ class FinancialSnapshot(BaseModel):
     @property
     def operating_margin(self) -> float:
         """Operating margin percentage."""
-        if self.net_revenue == 0:
+        if not self.net_revenue or not self.operating_income or self.net_revenue == 0:
             return 0.0
         return (self.operating_income / self.net_revenue) * 100
     
@@ -62,7 +62,7 @@ class FinancialSnapshot(BaseModel):
     @property
     def net_margin(self) -> float:
         """Net profit margin percentage."""
-        if self.net_revenue == 0:
+        if not self.net_revenue or not self.net_income or self.net_revenue == 0:
             return 0.0
         return (self.net_income / self.net_revenue) * 100
     
@@ -70,7 +70,7 @@ class FinancialSnapshot(BaseModel):
     @property
     def debt_ratio(self) -> float:
         """Total liabilities to total assets ratio."""
-        if self.total_assets == 0:
+        if not self.total_assets or not self.total_liabilities or self.total_assets == 0:
             return 0.0
         return (self.total_liabilities / self.total_assets) * 100
     
@@ -78,7 +78,7 @@ class FinancialSnapshot(BaseModel):
     @property
     def equity_ratio(self) -> float:
         """Equity to total assets ratio."""
-        if self.total_assets == 0:
+        if not self.total_assets or not self.equity or self.total_assets == 0:
             return 0.0
         return (self.equity / self.total_assets) * 100
     
@@ -94,7 +94,7 @@ class FinancialSnapshot(BaseModel):
     @property
     def roa(self) -> float:
         """Return on Assets (ROA) - annualized."""
-        if self.total_assets == 0:
+        if not self.total_assets or not self.net_income or self.total_assets == 0:
             return 0.0
         quarterly_roa = (self.net_income / self.total_assets) * 100
         return quarterly_roa * 4  # Annualize
@@ -103,7 +103,7 @@ class FinancialSnapshot(BaseModel):
     @property
     def roe(self) -> float:
         """Return on Equity (ROE) - annualized."""
-        if self.equity == 0:
+        if not self.equity or not self.net_income or self.equity == 0:
             return 0.0
         quarterly_roe = (self.net_income / self.equity) * 100
         return quarterly_roe * 4  # Annualize
@@ -234,7 +234,14 @@ class EarlyWarningSystem(BaseModel):
         """Number of triggered signals."""
         return len(self.triggered_signals)
     
+    @computed_field
+    @property
+    def overall_level(self) -> str:
+        """Alias for warning_level for backward compatibility."""
+        return self.warning_level
+    
     recommendation: str = Field(default="", description="Recommended actions")
+    recommendations: List[str] = Field(default_factory=list, description="List of recommended actions")
     commentary: str = Field(default="", description="Overall risk commentary")
 
 
