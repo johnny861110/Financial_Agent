@@ -1,303 +1,117 @@
-# Financial Report Agent
+# 📊 Financial Agent：AI 驅動型金融深度分析專家系統
 
-**Version:** 2.0  
-**Audience:** Professional Fund Managers & Investment Teams  
-**Tech Stack:** Python, FastAPI, Streamlit, LangGraph/LangChain, LLM API, JSON Financial Data
+> **「將大語言模型的邏輯推理能力，與金融工程的精確計算完美融合。」**
 
-## Overview
+[![FastAPI](https://img.shields.io/badge/API-FastAPI-009688?style=flat-square&logo=fastapi)](https://fastapi.tiangolo.com/)
+[![LangGraph](https://img.shields.io/badge/Agent-LangGraph-FF6F00?style=flat-square)](https://github.com/langchain-ai/langgraph)
+[![Streamlit](https://img.shields.io/badge/UI-Streamlit-FF4B4B?style=flat-square&logo=streamlit)](https://streamlit.io/)
+[![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-3776AB?style=flat-square&logo=python)](https://www.python.org/)
 
-The Financial Report Agent is a comprehensive AI-powered system designed to analyze financial reports and provide professional-grade investment insights. It combines structured analytics with textual intelligence through both a modern web UI (Streamlit) and REST API to answer natural language queries about company financials.
+**Financial Agent** 是一個專為專業投資者與分析師設計的自動化財務分析平台。它不同於一般的 ChatBot，本系統採用 **LangGraph** 構建了嚴謹的分析工作流，確保 Agent 在處理複雜金融問題時，能夠精確調用底層的財務模型，產出具備「專業金融深度」且「零幻覺」的分析報告。
 
-## Features
+---
 
-### Core Analytics
-- **Snapshot Analysis**: Single-quarter financial metrics with derived calculations
-- **Trend Analysis**: Multi-quarter trend identification
-- **Peer Comparison**: Cross-sectional company comparisons
+## 🌟 核心特色 (Key Features)
 
-### Fund Manager Analytics
-- **Management Quality Score**: Governance, tenure stability, insider alignment
-- **Earnings Quality Score**: Accrual analysis, working capital behavior
-- **ROIC vs WACC**: Value creation analysis
-- **Factor Exposures**: Quality, value, momentum, size, volatility
-- **Capital Allocation**: Dividend, buyback, capex analysis
-- **Early Warning System**: Risk detection and red flags
+### 🧠 智能分析中樞 (Agent Intelligence)
+*   **LangGraph 驅動**：利用狀態機 (State Machine) 編排分析 SOP，自動識別用戶意圖並路由至對應的分析節點。
+*   **混合推理架構**：LLM 負責語意理解與結果總結，Python Service 負責硬核計算，徹底消除 AI 計算幻覺。
 
-### NLP Capabilities
-- Sentiment analysis
-- Guidance extraction
-- Earnings call summarization
+### ⚡ 硬核金融精算 (Expert Services)
+*   **ROIC vs WACC**：基於 CAPM 模型計算超額回報 (Value Creation Gap)，量化企業競爭力。
+*   **EWS (Early Warning System)**：偵測應收帳款異常、毛利壓縮、現金流斷裂等 6 大暴雷信號。
+*   **Earnings Quality**：透過應計項 (Accruals) 與波動率分析，揭露會計利潤真實度。
+*   **Factor Exposure**：量化 Quality, Value, Momentum, Size, Volatility 五大因子暴露度。
 
-## Architecture
+### 📊 專業視覺化看板 (UI/UX)
+*   提供 9 個專業維度的圖表化頁面，將複雜的數據轉化為直觀的 Plotly 交互式圖表。
+*   支持 AI 聊天介面，並可溯源分析步驟 (Analysis Steps) 與數據來源。
 
+---
+
+## 🏗️ 系統架構 (Architecture)
+
+本專案採用 **Precision-Reasoning Hybrid (精度-推理混合架構)**：
+
+```mermaid
+graph TD
+    subgraph "數據工廠 (ETL)"
+        Raw[原始數據] --> ETL[convert_financial_report.py] --> DB[(Structured JSON)]
+    end
+
+    subgraph "智能中樞 (LangGraph Orchestration)"
+        API[FastAPI] --> Workflow[LangGraph StateGraph]
+        Workflow --> Router[Intent Router]
+        Router --> |Dynamic Routing| Nodes{專業分析節點}
+    end
+
+    subgraph "專家精算層 (Expert Services)"
+        Nodes --> S1[ROIC/WACC Service]
+        Nodes --> S2[EWS Risk Service]
+        Nodes --> S3[Earnings Quality]
+        Nodes --> S4[Peer/Trend/Factor]
+    end
+
+    subgraph "交互層 (Presentation)"
+        S1 & S2 & S3 & S4 --> LLM[GPT-4o Response Composer]
+        LLM --> UI[Streamlit Dashboard]
+    end
+
+    DB --> S1 & S2 & S3 & S4
 ```
-financial-agent/
-├── app/
-│   ├── main.py              # FastAPI application entry
-│   ├── core/                # Configuration and utilities
-│   ├── models/              # Pydantic data models
-│   ├── services/            # Business logic services
-│   ├── api/                 # REST API endpoints
-│   └── agents/              # LangGraph agent workflows
-├── ui/
-│   ├── pages/               # Streamlit page modules
-│   │   ├── snapshot.py      # Financial snapshot page
-│   │   ├── trend.py         # Trend analysis page
-│   │   ├── peer.py          # Peer comparison page
-│   │   ├── management.py    # Management quality page
-│   │   ├── earnings_quality.py  # Earnings quality page
-│   │   ├── roic_wacc.py     # ROIC vs WACC page
-│   │   ├── factor.py        # Factor exposure page
-│   │   ├── ews.py           # Early warning system page
-│   │   └── agent.py         # AI agent chat page
-│   └── __init__.py
-├── streamlit_app.py         # Streamlit application entry
-├── tests/                   # Test suite
-└── pyproject.toml           # Project configuration (uv)
-```
 
-## Installation
+---
 
-### Prerequisites
+## 🚀 快速上手 (Quick Start)
 
-- Python 3.10 or higher
-- [uv](https://github.com/astral-sh/uv) - Fast Python package installer
-
-### Using uv (Recommended)
-
-1. Install uv:
+### 1. 環境安裝
+本專案建議使用高性能的 [uv](https://github.com/astral-sh/uv) 進行包管理：
 ```bash
-pip install uv
+# 安裝依賴
+uv pip install -r requirements.txt
 ```
 
-2. Install dependencies:
-```bash
-uv sync
-```
-
-### Alternative: Using pip
-
-```bash
-pip install -e .
-```
-
-## Configuration
-
-Create a `.env` file in the project root:
-
+### 2. 設定環境變數
+在根目錄創建 `.env` 文件：
 ```env
-# LLM Configuration
-OPENAI_API_KEY=your_openai_api_key_here
-LLM_MODEL=gpt-4-turbo-preview
-LLM_TEMPERATURE=0.0
-
-# Data Configuration
-DATA_DIR=./data
-FINANCIAL_DATA_PATH=./data/financial_reports
-
-# API Configuration
-API_HOST=0.0.0.0
-API_PORT=8000
-API_RELOAD=true
+OPENAI_API_KEY=your_api_key_here
+LLM_MODEL=gpt-4o
 ```
 
-## Usage
-
-### Starting the Streamlit UI (Recommended for Users)
-
+### 3. 數據準備 (ETL)
+將您的原始財報放入 `raw_data` 目錄，並執行轉換腳本：
 ```bash
-streamlit run streamlit_app.py
+python convert_financial_report.py --batch ./raw_data
 ```
 
-The web interface will be available at `http://localhost:8501`
-
-**Features:**
-- 📊 Interactive financial dashboards
-- 📈 Trend visualization with charts
-- 🔄 Peer comparison tables
-- ⭐ Management quality scoring
-- 💎 Earnings quality analysis
-- 💰 ROIC vs WACC calculator
-- 📐 Factor exposure radar charts
-- 🚨 Early warning system
-- 🤖 AI agent chat interface
-
-### Starting the API Server (For Developers)
-
+### 4. 啟動服務
+開啟兩個終端機，分別啟動後端與前端：
 ```bash
+# 啟動 FastAPI (Backend)
 uvicorn app.main:app --reload
-```
 
-The API will be available at `http://localhost:8000`
-
-### Streamlit UI Pages
-
-The Streamlit interface provides 9 interactive pages:
-
-1. **📊 Snapshot**: Single-period financial metrics with KPIs and charts
-2. **📈 Trend Analysis**: Multi-period trend visualization with indicators
-3. **🔄 Peer Comparison**: Cross-sectional company benchmarking with radar charts
-4. **⭐ Management Quality**: Governance scoring with component breakdown
-5. **💎 Earnings Quality**: Accrual analysis and red flag detection
-6. **💰 ROIC vs WACC**: Value creation analysis with sensitivity
-7. **📐 Factor Exposure**: Investment factor z-scores and positioning
-8. **🚨 Early Warning System**: Real-time risk monitoring and alerts
-9. **🤖 AI Agent**: Natural language chat interface for queries
-
-### API Documentation
-
-Once the server is running, visit:
-- Swagger UI: `http://localhost:8000/docs`
-- ReDoc: `http://localhost:8000/redoc`
-
-### Key Endpoints
-
-- `GET /api/financials/{stock}/{period}` - Get financial snapshot
-- `GET /api/trend/{stock}` - Get trend analysis
-- `POST /api/peers/compare` - Compare peer companies
-- `GET /api/scores/management/{stock}/{period}` - Management quality score
-- `GET /api/scores/earnings_quality/{stock}/{period}` - Earnings quality score
-- `GET /api/roic_wacc/{stock}/{period}` - ROIC vs WACC analysis
-- `POST /api/agent/query` - Natural language query to agent
-
-### Example: Natural Language Query
-
-```bash
-curl -X POST "http://localhost:8000/api/agent/query" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "query": "What is the management quality of company 2330 in Q3 2023?",
-    "stock_code": "2330",
-    "period": "2023Q3"
-  }'
-```
-
-## Data Format
-
-The system expects financial data in the following JSON format:
-
-```json
-{
-  "stock_code": "2330",
-  "company_name": "TSMC",
-  "report_year": 2023,
-  "report_season": 3,
-  "report_period": "2023Q3",
-  "currency": "TWD",
-  "unit": "thousand",
-  "cash_and_equivalents": 1500000,
-  "accounts_receivable": 300000,
-  "inventory": 200000,
-  "total_assets": 5000000,
-  "total_liabilities": 2000000,
-  "equity": 3000000,
-  "net_revenue": 800000,
-  "gross_profit": 400000,
-  "operating_income": 300000,
-  "net_income": 250000,
-  "eps": 9.65
-}
-```
-
-Place your financial data JSON files in the configured `FINANCIAL_DATA_PATH` directory with the naming convention:
-`<ticker>_<period>_enhanced.json`
-
-## Testing
-
-Run the test suite:
-
-```bash
-uv run pytest
-```
-
-With coverage:
-
-```bash
-uv run pytest --cov=app tests/
-```
-
-Or using pytest directly:
-
-```bash
-pytest
-pytest --cov=app tests/
-```
-
-## Development
-
-### Code Formatting
-
-```bash
-uv run black app/ tests/ ui/
-```
-
-### Linting
-
-```bash
-uv run flake8 app/ tests/ ui/
-```
-
-### Type Checking
-
-```bash
-uv run mypy app/
-```
-
-### Running Development Server
-
-```bash
-# API server with auto-reload
-uv run uvicorn app.main:app --reload
-
-# Streamlit UI with auto-reload (default behavior)
+# 啟動 Streamlit (Frontend)
 streamlit run streamlit_app.py
 ```
 
-## Scoring Formulas
+---
 
-### Management Quality Score
+## 📂 專案結構 (Project Structure)
 
-$$M = 0.25T + 0.25B + 0.25I + 0.25G$$
+*   `app/agents/`: **系統核心**。LangGraph 工作流與 Agent 工具定義。
+*   `app/services/`: **領域專家**。負責 ROIC, EWS, EQ 等複雜財務邏輯。
+*   `app/api/`: 定義 RESTful 接口。
+*   `app/models/`: 基於 Pydantic 的嚴謹數據合約。
+*   `ui/pages/`: 專業視覺化分析頁面。
+*   `tests/`: 完整的單元測試與集成測試，確保計算精度。
 
-Where:
-- T = Tenure stability
-- B = Board independence
-- I = Insider alignment
-- G = Governance (inverted red flags)
+---
 
-### Earnings Quality Score
+## 📈 未來路線圖 (Roadmap)
 
-$$E = 0.25AQ + 0.25WCB + 0.25OD + 0.25ES$$
+- [ ] **RAG 增強**：整合向量資料庫，支援數萬份研報檢索。
+- [ ] **多模態解析**：引入 Vision LLM，直接讀取掃描版財報圖表。
+- [ ] **實時 API**：對接 Bloomberg/Refinitiv 數據源實現秒級更新。
 
-Where:
-- AQ = Accrual quality
-- WCB = Working capital behavior
-- OD = One-off dependency (inverted)
-- ES = Earnings stability
-
-## Roadmap
-
-### Phase 1 – Core Agent ✓
-- Snapshot, trend, peers analysis
-- Basic API endpoints
-- Basic agent workflow
-
-### Phase 2 – Fund Manager Core Analytics (Current)
-- Management score
-- Earnings quality score
-- ROIC/WACC analysis
-- Early warning system
-
-### Phase 3 – Advanced Insights (Planned)
-- Factor exposures
-- Sentiment analysis
-- Guidance tracker
-- Earnings call intelligence
-
-## License
-
-MIT License
-
-## Support
-
-For issues and questions, please open an issue on the GitHub repository.
+---
+*Built with ❤️ by Financial Engineers and AI Specialists.*
