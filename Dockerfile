@@ -6,7 +6,6 @@ FROM python:3.10-slim as base
 # Set environment variables
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    UV_SYSTEM_PYTHON=1 \
     UV_COMPILE_BYTECODE=1
 
 # Set working directory
@@ -24,16 +23,17 @@ RUN apt-get update && \
 ENV PATH="/root/.local/bin:$PATH"
 
 # Copy dependency files
-COPY requirements.txt pyproject.toml ./
+COPY pyproject.toml uv.lock README.md ./
 
-# Install Python dependencies with uv
-RUN uv pip install --system -r requirements.txt
+# Install Python dependencies with uv (creates .venv)
+RUN uv sync --frozen --no-dev
 
 # Copy application code
 COPY app/ ./app/
 COPY ui/ ./ui/
 COPY streamlit_app.py ./
 COPY data/ ./data/
+COPY convert_financial_report.py ./
 
 # Create non-root user
 RUN useradd -m -u 1000 appuser && \
@@ -42,9 +42,7 @@ RUN useradd -m -u 1000 appuser && \
 USER appuser
 
 # Expose ports
-# 8000 for FastAPI
-# 8501 for Streamlit
 EXPOSE 8000 8501
 
-# Default command (can be overridden in docker-compose)
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Default command
+CMD ["uv", "run", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
