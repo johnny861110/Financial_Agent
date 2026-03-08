@@ -1,9 +1,11 @@
 """LangGraph agent workflow for financial analysis."""
 
-from typing import TypedDict, Annotated, Sequence
+from typing import TypedDict, Annotated, Sequence, List
 from langgraph.graph import StateGraph, END
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage
 from langchain_openai import ChatOpenAI
+from langchain_core.output_parsers import PydanticOutputParser
+from langchain_core.prompts import PromptTemplate
 from app.core import get_settings
 from app.agents.tools import ALL_TOOLS
 from app.models.agent_models import AgentQuery, AgentResponse, IntentClassification
@@ -16,6 +18,7 @@ class AgentState(TypedDict):
     stock_code: str
     period: str
     intent: str
+    entities: dict
     analysis_data: dict
     final_answer: str
 
@@ -27,9 +30,10 @@ class FinancialAgent:
         self.settings = get_settings()
         self.llm = ChatOpenAI(
             model=self.settings.llm_model,
-            temperature=self.settings.llm_temperature,
+            temperature=0.0,  # Force zero temperature for extraction
             api_key=self.settings.openai_api_key,
         )
+        self.parser = PydanticOutputParser(pydantic_object=IntentClassification)
         self.graph = self._build_graph()
     
     def _build_graph(self) -> StateGraph:
@@ -81,34 +85,38 @@ class FinancialAgent:
         return workflow.compile()
     
     def _intent_router_node(self, state: AgentState) -> AgentState:
-        """Classify user intent."""
+        """Classify user intent and extract entities using LLM."""
         query = state["query"]
         
-        # Simple keyword-based intent classification
-        # In production, would use LLM-based classification
-        query_lower = query.lower()
+        prompt = PromptTemplate(
+            template="Analyze the following financial query and classify the intent and extract relevant entities (stock_code, period, etc.).\n{format_instructions}\nQuery: {query}\n",
+            input_variables=["query"],
+            partial_variables={"format_instructions": self.parser.get_format_instructions()},
+        )
         
-        # Check more specific intents first to avoid false matches
-        if any(word in query_lower for word in ["roic", "wacc", "value creation", "return on capital"]):
-            intent = "roic_wacc"
-        elif any(word in query_lower for word in ["earnings quality", "accrual", "cash flow"]):
-            intent = "earnings_quality"
-        elif any(word in query_lower for word in ["capital allocation", "dividend", "buyback", "capex"]):
-            intent = "capital_allocation"
-        elif any(word in query_lower for word in ["trend", "over time", "historical", "growth"]):
-            intent = "trend"
-        elif any(word in query_lower for word in ["compare", "peer", "vs", "versus", "against"]):
-            intent = "peer"
-        elif any(word in query_lower for word in ["management", "governance", "ceo", "board"]):
-            intent = "management"
-        elif any(word in query_lower for word in ["factor", "exposure"]):
-            intent = "factor"
-        elif any(word in query_lower for word in ["risk", "warning", "red flag", "concern", "alert"]):
-            intent = "ews"
-        else:
-            intent = "snapshot"
+        chain = prompt | self.llm | self.parser
         
-        state["intent"] = intent
+        try:
+            result = chain.invoke({"query": query})
+            state["intent"] = result.intent_type
+            state["entities"] = result.entities
+            
+            # Update stock_code and period if found in entities
+            if "stock_code" in result.entities and result.entities["stock_code"]:
+                state["stock_code"] = str(result.entities["stock_code"])
+            if "period" in result.entities and result.entities["period"]:
+                state["period"] = str(result.entities["period"])
+                
+        except Exception:
+            # Fallback to keyword matching if LLM fails
+            query_lower = query.lower()
+            if any(word in query_lower for word in ["roic", "wacc"]): intent = "roic_wacc"
+            elif "trend" in query_lower: intent = "trend"
+            elif "management" in query_lower: intent = "management"
+            else: intent = "snapshot"
+            state["intent"] = intent
+            state["entities"] = {}
+            
         return state
     
     def _route_by_intent(self, state: AgentState) -> str:
@@ -139,8 +147,8 @@ class FinancialAgent:
         """Execute peer comparison."""
         from app.agents.tools import tool_peer_compare
         
-        # Extract peer codes from query or use defaults
-        stock_codes = state["stock_code"]  # Could parse multiple from query
+        # Try to get peers from entities
+        stock_codes = state["entities"].get("peers", state["stock_code"])
         
         result = tool_peer_compare.invoke({
             "stock_codes": stock_codes,
@@ -154,8 +162,17 @@ class FinancialAgent:
         """Execute management quality analysis."""
         from app.agents.tools import tool_management_score
         
-        # In production, would extract these from data or query
-        result = tool_management_score.invoke({})
+        # Extract parameters from entities with defaults
+        params = {
+            "ceo_tenure": float(state["entities"].get("ceo_tenure", 5.0)),
+            "cfo_tenure": float(state["entities"].get("cfo_tenure", 4.0)),
+            "board_independence": float(state["entities"].get("board_independence", 0.4)),
+            "insider_buys": int(state["entities"].get("insider_buys", 0)),
+            "insider_sells": int(state["entities"].get("insider_sells", 0)),
+            "governance_incidents": int(state["entities"].get("governance_incidents", 0)),
+        }
+        
+        result = tool_management_score.invoke(params)
         state["analysis_data"] = result
         return state
     
@@ -178,7 +195,7 @@ class FinancialAgent:
         result = tool_roic_wacc.invoke({
             "stock_code": state["stock_code"],
             "period": state["period"],
-            "beta": 1.0
+            "beta": float(state["entities"].get("beta", 1.0))
         })
         
         state["analysis_data"] = result
@@ -191,7 +208,7 @@ class FinancialAgent:
         result = tool_factor_exposure.invoke({
             "stock_code": state["stock_code"],
             "period": state["period"],
-            "peers": ""
+            "peers": state["entities"].get("peers", "")
         })
         
         state["analysis_data"] = result
@@ -204,9 +221,9 @@ class FinancialAgent:
         result = tool_capital_allocation.invoke({
             "stock_code": state["stock_code"],
             "period": state["period"],
-            "dividends": 0,
-            "buybacks": 0,
-            "capex": 0
+            "dividends": float(state["entities"].get("dividends", 0)),
+            "buybacks": float(state["entities"].get("buybacks", 0)),
+            "capex": float(state["entities"].get("capex", 0))
         })
         
         state["analysis_data"] = result
@@ -231,20 +248,27 @@ class FinancialAgent:
         query = state.get("query", "")
         
         if not analysis_data.get("success"):
-            state["final_answer"] = f"Unable to complete {intent} analysis. {analysis_data.get('error', 'Unknown error')}"
+            error_msg = analysis_data.get("error", "Unknown error")
+            state["final_answer"] = f"I encountered an issue while performing the {intent} analysis: {error_msg}. Please ensure the data for {state.get('stock_code')} and period {state.get('period')} is available."
             return state
         
         # Use LLM to compose natural language answer
         data = analysis_data.get("data", {})
         
         prompt = f"""
-Based on the financial analysis results below, provide a clear and professional answer to the user's question.
+As a professional financial analyst, provide a clear, insightful, and professional answer to the user's question based on the data provided.
 
 User Question: {query}
 Analysis Type: {intent}
+Stock: {state.get('stock_code')}
+Period: {state.get('period')}
 Analysis Results: {data}
 
-Provide a comprehensive but concise answer highlighting the key insights.
+Guidelines:
+- If the data is missing or incomplete, explain what is missing.
+- Highlight key metrics and their implications.
+- Use a professional tone suitable for fund managers.
+- Keep the answer concise but comprehensive.
 """
         
         response = self.llm.invoke([HumanMessage(content=prompt)])
@@ -262,13 +286,14 @@ Provide a comprehensive but concise answer highlighting the key insights.
         Returns:
             AgentResponse with analysis results
         """
-        # Initialize state
+        # Initialize state with fallback period if not provided
         initial_state = AgentState(
             messages=[HumanMessage(content=query.query)],
             query=query.query,
-            stock_code=query.stock_code or "",
-            period=query.period or "",
+            stock_code=query.stock_code or "AAPL",
+            period=query.period or "2023Q3",  # Provide a default fallback period
             intent="",
+            entities={},
             analysis_data={},
             final_answer=""
         )
@@ -280,8 +305,9 @@ Provide a comprehensive but concise answer highlighting the key insights.
         return AgentResponse(
             query=query.query,
             answer=final_state["final_answer"],
-            sources=[f"{final_state['intent']} analysis"],
-            analysis_steps=[final_state["intent"]],
+            sources=[f"{final_state['intent']} analysis tool"],
+            analysis_steps=[f"Detected intent: {final_state['intent']}", f"Extracted entities: {final_state.get('entities')}"],
             data=final_state.get("analysis_data", {}),
-            confidence="medium"
+            confidence="high" if final_state.get("analysis_data", {}).get("success") else "low"
         )
+
