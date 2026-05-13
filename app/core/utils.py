@@ -1,18 +1,48 @@
 """Core utilities and helpers."""
 
-from typing import List, Dict, Any
+from typing import List, Optional
 import statistics
+
+
+class InsufficientDataError(ValueError):
+    """Raised when a financial calculation cannot run because required fields are missing."""
+
+    def __init__(self, message: str, missing_fields: Optional[List[str]] = None):
+        super().__init__(message)
+        self.missing_fields = missing_fields or []
+
+
+def missing_fields(record: object, fields: List[str]) -> List[str]:
+    """Return required field names whose value is None."""
+    return [field for field in fields if getattr(record, field, None) is None]
+
+
+def require_fields(record: object, fields: List[str], context: str) -> None:
+    """Raise a structured error if any required fields are missing."""
+    missing = missing_fields(record, fields)
+    if missing:
+        raise InsufficientDataError(
+            f"Insufficient data for {context}: missing {', '.join(missing)}",
+            missing,
+        )
+
+
+def required_float(record: object, field: str, context: str) -> float:
+    """Return a required numeric field as float after validating it is present."""
+    require_fields(record, [field], context)
+    value = getattr(record, field)
+    return float(value)
 
 
 def calculate_z_score(value: float, mean: float, std_dev: float) -> float:
     """
     Calculate z-score for factor exposure.
-    
+
     Args:
         value: Raw value
         mean: Population mean
         std_dev: Population standard deviation
-    
+
     Returns:
         Z-score
     """
@@ -24,12 +54,12 @@ def calculate_z_score(value: float, mean: float, std_dev: float) -> float:
 def safe_divide(numerator: float, denominator: float, default: float = 0.0) -> float:
     """
     Safely divide two numbers, returning default if denominator is zero.
-    
+
     Args:
         numerator: Numerator value
         denominator: Denominator value
         default: Default return value if division by zero
-    
+
     Returns:
         Division result or default
     """
@@ -41,11 +71,11 @@ def safe_divide(numerator: float, denominator: float, default: float = 0.0) -> f
 def calculate_growth_rate(current: float, previous: float) -> float:
     """
     Calculate growth rate as percentage.
-    
+
     Args:
         current: Current period value
         previous: Previous period value
-    
+
     Returns:
         Growth rate as percentage
     """
@@ -57,18 +87,18 @@ def calculate_growth_rate(current: float, previous: float) -> float:
 def normalize_score(value: float, min_val: float, max_val: float) -> float:
     """
     Normalize a value to 0-100 scale.
-    
+
     Args:
         value: Value to normalize
         min_val: Minimum expected value
         max_val: Maximum expected value
-    
+
     Returns:
         Normalized score (0-100)
     """
     if max_val == min_val:
         return 50.0
-    
+
     normalized = ((value - min_val) / (max_val - min_val)) * 100
     return max(0.0, min(100.0, normalized))
 
@@ -76,20 +106,20 @@ def normalize_score(value: float, min_val: float, max_val: float) -> float:
 def calculate_volatility(values: List[float]) -> float:
     """
     Calculate coefficient of variation (volatility measure).
-    
+
     Args:
         values: List of numeric values
-    
+
     Returns:
         Coefficient of variation (std_dev / mean)
     """
     if len(values) < 2:
         return 0.0
-    
+
     mean = statistics.mean(values)
     if mean == 0:
         return 0.0
-    
+
     std_dev = statistics.stdev(values)
     return std_dev / mean
 
@@ -97,11 +127,11 @@ def calculate_volatility(values: List[float]) -> float:
 def format_large_number(value: float, unit: str = "thousand") -> str:
     """
     Format large numbers for display.
-    
+
     Args:
         value: Numeric value
         unit: Unit of the value (thousand, million, billion)
-    
+
     Returns:
         Formatted string
     """
@@ -110,10 +140,10 @@ def format_large_number(value: float, unit: str = "thousand") -> str:
         "million": 1_000_000,
         "billion": 1_000_000_000,
     }
-    
+
     multiplier = multipliers.get(unit.lower(), 1)
     actual_value = value * multiplier
-    
+
     if actual_value >= 1_000_000_000:
         return f"{actual_value / 1_000_000_000:.2f}B"
     elif actual_value >= 1_000_000:
@@ -127,10 +157,10 @@ def format_large_number(value: float, unit: str = "thousand") -> str:
 def interpret_score(score: float) -> str:
     """
     Interpret a 0-100 score into qualitative categories.
-    
+
     Args:
         score: Score value (0-100)
-    
+
     Returns:
         Qualitative interpretation
     """

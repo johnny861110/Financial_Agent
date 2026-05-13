@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 
 class AgentQuery(BaseModel):
     """Agent natural language query request."""
-    
+
     query: str = Field(..., description="Natural language question")
     stock_code: Optional[str] = Field(None, description="Stock code if relevant")
     period: Optional[str] = Field(None, description="Period if relevant (e.g., '2023Q3')")
@@ -15,7 +15,7 @@ class AgentQuery(BaseModel):
 
 class AgentResponse(BaseModel):
     """Agent response with analysis results."""
-    
+
     query: str
     answer: str
     sources: List[str] = Field(default_factory=list, description="Data sources used")
@@ -26,10 +26,10 @@ class AgentResponse(BaseModel):
 
 class IntentClassification(BaseModel):
     """Intent classification result."""
-    
+
     intent_type: str = Field(
         ...,
-        description="snapshot, trend, peer, management, earnings_quality, roic_wacc, factor, capital_allocation, sentiment, guidance, ews"
+        description="snapshot, trend, peer, management, earnings_quality, roic_wacc, factor, capital_allocation, sentiment, guidance, ews",
     )
     confidence: float = Field(..., ge=0, le=1)
     entities: Dict[str, Any] = Field(default_factory=dict)

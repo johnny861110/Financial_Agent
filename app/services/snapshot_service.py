@@ -7,18 +7,18 @@ from app.core import DataLoader, enrich_snapshot
 
 class SnapshotService:
     """Service for loading and analyzing single financial snapshots."""
-    
+
     def __init__(self):
         self.data_loader = DataLoader()
-    
+
     def get_snapshot(self, stock_code: str, period: str) -> Optional[FinancialSnapshot]:
         """
         Get enriched financial snapshot for a specific period.
-        
+
         Args:
             stock_code: Stock ticker code
             period: Period identifier (e.g., '2023Q3')
-        
+
         Returns:
             Enriched FinancialSnapshot or None if not found
         """
@@ -26,22 +26,22 @@ class SnapshotService:
         if snapshot:
             return enrich_snapshot(snapshot)
         return None
-    
+
     def get_summary(self, stock_code: str, period: str) -> Optional[dict]:
         """
         Get structured summary of financial snapshot.
-        
+
         Args:
             stock_code: Stock ticker code
             period: Period identifier
-        
+
         Returns:
             Dictionary with key metrics and analysis
         """
         snapshot = self.get_snapshot(stock_code, period)
         if not snapshot:
             return None
-        
+
         return {
             "identification": {
                 "stock_code": snapshot.stock_code,
@@ -71,7 +71,9 @@ class SnapshotService:
             "financial_structure": {
                 "debt_ratio": round(snapshot.debt_ratio, 2),
                 "equity_ratio": round(snapshot.equity_ratio, 2),
-                "current_ratio": round(snapshot.current_ratio, 2) if snapshot.current_ratio else None,
+                "current_ratio": (
+                    round(snapshot.current_ratio, 2) if snapshot.current_ratio else None
+                ),
             },
             "returns": {
                 "roa": round(snapshot.roa, 2),

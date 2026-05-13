@@ -56,17 +56,41 @@ def sample_snapshots_multi_period():
         "total_liabilities": 2000000,
         "equity": 3000000,
     }
-    
-    q1 = {**base, "report_year": 2023, "report_season": 1, "report_period": "2023Q1",
-          "net_revenue": 700000, "gross_profit": 350000, "operating_income": 250000,
-          "net_income": 200000, "eps": 7.73}
-    
-    q2 = {**base, "report_year": 2023, "report_season": 2, "report_period": "2023Q2",
-          "net_revenue": 750000, "gross_profit": 375000, "operating_income": 275000,
-          "net_income": 225000, "eps": 8.69}
-    
-    q3 = {**base, "report_year": 2023, "report_season": 3, "report_period": "2023Q3",
-          "net_revenue": 800000, "gross_profit": 400000, "operating_income": 300000,
-          "net_income": 250000, "eps": 9.65}
-    
+
+    q1 = {
+        **base,
+        "report_year": 2023,
+        "report_season": 1,
+        "report_period": "2023Q1",
+        "net_revenue": 700000,
+        "gross_profit": 350000,
+        "operating_income": 250000,
+        "net_income": 200000,
+        "eps": 7.73,
+    }
+
+    q2 = {
+        **base,
+        "report_year": 2023,
+        "report_season": 2,
+        "report_period": "2023Q2",
+        "net_revenue": 750000,
+        "gross_profit": 375000,
+        "operating_income": 275000,
+        "net_income": 225000,
+        "eps": 8.69,
+    }
+
+    q3 = {
+        **base,
+        "report_year": 2023,
+        "report_season": 3,
+        "report_period": "2023Q3",
+        "net_revenue": 800000,
+        "gross_profit": 400000,
+        "operating_income": 300000,
+        "net_income": 250000,
+        "eps": 9.65,
+    }
+
     return [q1, q2, q3]

@@ -2,6 +2,7 @@
 
 from typing import Optional, Dict, Any
 from langchain.tools import tool
+from app.core import InsufficientDataError
 from app.services import (
     SnapshotService,
     TrendService,
@@ -27,15 +28,25 @@ capital_allocation_service = CapitalAllocationService()
 ews_service = EarlyWarningService()
 
 
+def _insufficient_data_response(exc: InsufficientDataError) -> Dict[str, Any]:
+    """Return a tool-friendly structured insufficient data response."""
+    return {
+        "success": False,
+        "error": "insufficient_data",
+        "message": str(exc),
+        "missing_fields": exc.missing_fields,
+    }
+
+
 @tool
 def tool_snapshot(stock_code: str, period: str) -> Dict[str, Any]:
     """
     Get financial snapshot for a specific stock and period.
-    
+
     Args:
         stock_code: Stock ticker code (e.g., '2330')
         period: Period identifier (e.g., '2023Q3')
-    
+
     Returns:
         Dictionary with financial snapshot data
     """
@@ -49,10 +60,10 @@ def tool_snapshot(stock_code: str, period: str) -> Dict[str, Any]:
 def tool_trend(stock_code: str) -> Dict[str, Any]:
     """
     Analyze trends for a stock across multiple periods.
-    
+
     Args:
         stock_code: Stock ticker code
-    
+
     Returns:
         Dictionary with trend analysis
     """
@@ -73,7 +84,7 @@ def tool_trend(stock_code: str) -> Dict[str, Any]:
                     for m in analysis.metrics
                 ],
                 "summary": analysis.summary,
-            }
+            },
         }
     return {"success": False, "error": "Insufficient data for trend analysis"}
 
@@ -82,15 +93,15 @@ def tool_trend(stock_code: str) -> Dict[str, Any]:
 def tool_peer_compare(stock_codes: str, period: str) -> Dict[str, Any]:
     """
     Compare multiple companies on key metrics.
-    
+
     Args:
         stock_codes: Comma-separated stock codes (e.g., '2330,2454,3711')
         period: Period identifier (e.g., '2023Q3')
-    
+
     Returns:
         Dictionary with peer comparison data
     """
-    codes = [c.strip() for c in stock_codes.split(',')]
+    codes = [c.strip() for c in stock_codes.split(",")]
     analysis = peer_service.compare_peers(codes, period)
     if analysis:
         return {
@@ -108,7 +119,7 @@ def tool_peer_compare(stock_codes: str, period: str) -> Dict[str, Any]:
                     for c in analysis.comparisons
                 ],
                 "summary": analysis.summary,
-            }
+            },
         }
     return {"success": False, "error": "Insufficient data for comparison"}
 
@@ -124,7 +135,7 @@ def tool_management_score(
 ) -> Dict[str, Any]:
     """
     Calculate management quality score.
-    
+
     Args:
         ceo_tenure: CEO tenure in years
         cfo_tenure: CFO tenure in years
@@ -132,7 +143,7 @@ def tool_management_score(
         insider_buys: Number of insider buy transactions
         insider_sells: Number of insider sell transactions
         governance_incidents: Number of governance red flags
-    
+
     Returns:
         Dictionary with management score
     """
@@ -155,7 +166,7 @@ def tool_management_score(
                 "governance": score.governance_red_flags,
             },
             "commentary": score.commentary,
-        }
+        },
     }
 
 
@@ -163,15 +174,18 @@ def tool_management_score(
 def tool_earnings_quality_score(stock_code: str, period: str) -> Dict[str, Any]:
     """
     Calculate earnings quality score.
-    
+
     Args:
         stock_code: Stock ticker code
         period: Period identifier
-    
+
     Returns:
         Dictionary with earnings quality score
     """
-    score = earnings_quality_service.calculate_score(stock_code, period)
+    try:
+        score = earnings_quality_service.calculate_score(stock_code, period)
+    except InsufficientDataError as exc:
+        return _insufficient_data_response(exc)
     if score:
         return {
             "success": True,
@@ -185,7 +199,7 @@ def tool_earnings_quality_score(stock_code: str, period: str) -> Dict[str, Any]:
                 },
                 "red_flags": score.red_flags,
                 "commentary": score.commentary,
-            }
+            },
         }
     return {"success": False, "error": "Data not found"}
 
@@ -194,16 +208,19 @@ def tool_earnings_quality_score(stock_code: str, period: str) -> Dict[str, Any]:
 def tool_roic_wacc(stock_code: str, period: str, beta: float = 1.0) -> Dict[str, Any]:
     """
     Calculate ROIC vs WACC for value creation analysis.
-    
+
     Args:
         stock_code: Stock ticker code
         period: Period identifier
         beta: Market beta (default 1.0)
-    
+
     Returns:
         Dictionary with ROIC/WACC analysis
     """
-    analysis = roic_wacc_service.analyze(stock_code, period, market_beta=beta)
+    try:
+        analysis = roic_wacc_service.analyze(stock_code, period, market_beta=beta)
+    except InsufficientDataError as exc:
+        return _insufficient_data_response(exc)
     if analysis:
         return {
             "success": True,
@@ -213,7 +230,7 @@ def tool_roic_wacc(stock_code: str, period: str, beta: float = 1.0) -> Dict[str,
                 "spread": analysis.value_creation_gap,
                 "creating_value": analysis.is_value_creating,
                 "commentary": analysis.commentary,
-            }
+            },
         }
     return {"success": False, "error": "Data not found"}
 
@@ -222,17 +239,20 @@ def tool_roic_wacc(stock_code: str, period: str, beta: float = 1.0) -> Dict[str,
 def tool_factor_exposure(stock_code: str, period: str, peers: str = "") -> Dict[str, Any]:
     """
     Calculate factor exposures.
-    
+
     Args:
         stock_code: Stock ticker code
         period: Period identifier
         peers: Optional comma-separated peer stock codes
-    
+
     Returns:
         Dictionary with factor exposures
     """
-    peer_list = [p.strip() for p in peers.split(',')] if peers else None
-    exposures = factor_service.calculate_exposures(stock_code, period, peer_list)
+    peer_list = [p.strip() for p in peers.split(",")] if peers else None
+    try:
+        exposures = factor_service.calculate_exposures(stock_code, period, peer_list)
+    except InsufficientDataError as exc:
+        return _insufficient_data_response(exc)
     if exposures:
         return {
             "success": True,
@@ -243,7 +263,7 @@ def tool_factor_exposure(stock_code: str, period: str, peers: str = "") -> Dict[
                 "size": exposures.size,
                 "volatility": exposures.volatility,
                 "commentary": exposures.commentary,
-            }
+            },
         }
     return {"success": False, "error": "Insufficient data"}
 
@@ -258,20 +278,18 @@ def tool_capital_allocation(
 ) -> Dict[str, Any]:
     """
     Analyze capital allocation strategy.
-    
+
     Args:
         stock_code: Stock ticker code
         period: Period identifier
         dividends: Dividends paid
         buybacks: Share buybacks
         capex: Capital expenditures
-    
+
     Returns:
         Dictionary with capital allocation analysis
     """
-    analysis = capital_allocation_service.analyze(
-        stock_code, period, dividends, buybacks, capex
-    )
+    analysis = capital_allocation_service.analyze(stock_code, period, dividends, buybacks, capex)
     if analysis:
         return {
             "success": True,
@@ -280,7 +298,7 @@ def tool_capital_allocation(
                 "total_investment": analysis.total_investment,
                 "allocation_mix": analysis.allocation_mix,
                 "commentary": analysis.commentary,
-            }
+            },
         }
     return {"success": False, "error": "Data not found"}
 
@@ -290,10 +308,10 @@ def tool_sentiment(text: str) -> Dict[str, Any]:
     """
     Analyze sentiment from earnings call or report text.
     (Placeholder implementation - would use NLP models)
-    
+
     Args:
         text: Text to analyze
-    
+
     Returns:
         Dictionary with sentiment analysis
     """
@@ -303,8 +321,8 @@ def tool_sentiment(text: str) -> Dict[str, Any]:
         "data": {
             "sentiment": "neutral",
             "confidence": 0.5,
-            "note": "NLP sentiment analysis not yet implemented"
-        }
+            "note": "NLP sentiment analysis not yet implemented",
+        },
     }
 
 
@@ -313,21 +331,18 @@ def tool_guidance_tracker(stock_code: str, period: str) -> Dict[str, Any]:
     """
     Track management guidance from earnings calls.
     (Placeholder implementation - would parse transcripts)
-    
+
     Args:
         stock_code: Stock ticker code
         period: Period identifier
-    
+
     Returns:
         Dictionary with guidance information
     """
     # Placeholder implementation
     return {
         "success": True,
-        "data": {
-            "guidance": "Not available",
-            "note": "Guidance tracking not yet implemented"
-        }
+        "data": {"guidance": "Not available", "note": "Guidance tracking not yet implemented"},
     }
 
 
@@ -335,15 +350,18 @@ def tool_guidance_tracker(stock_code: str, period: str) -> Dict[str, Any]:
 def tool_ews(stock_code: str, period: str) -> Dict[str, Any]:
     """
     Run Early Warning System to detect financial red flags.
-    
+
     Args:
         stock_code: Stock ticker code
         period: Period identifier
-    
+
     Returns:
         Dictionary with early warning analysis
     """
-    ews = ews_service.detect_warnings(stock_code, period)
+    try:
+        ews = ews_service.detect_warnings(stock_code, period)
+    except InsufficientDataError as exc:
+        return _insufficient_data_response(exc)
     if ews:
         return {
             "success": True,
@@ -360,7 +378,7 @@ def tool_ews(stock_code: str, period: str) -> Dict[str, Any]:
                 ],
                 "recommendation": ews.recommendation,
                 "commentary": ews.commentary,
-            }
+            },
         }
     return {"success": False, "error": "Data not found"}
 

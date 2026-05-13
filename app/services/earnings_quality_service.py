@@ -2,32 +2,35 @@
 
 from typing import List, Optional
 from app.models import EarningsQualityScore, FinancialSnapshot
-from app.core import get_settings, calculate_volatility, DataLoader
+from app.core import (
+    get_settings,
+    calculate_volatility,
+    DataLoader,
+    require_fields,
+    required_float,
+)
 
 
 class EarningsQualityService:
     """Service for calculating earnings quality scores."""
-    
+
     def __init__(self):
         self.settings = get_settings()
         self.data_loader = DataLoader()
-    
+
     def calculate_score(
-        self,
-        stock_code: str,
-        period: str,
-        periods_for_trend: Optional[List[str]] = None
+        self, stock_code: str, period: str, periods_for_trend: Optional[List[str]] = None
     ) -> Optional[EarningsQualityScore]:
         """
         Calculate earnings quality score.
-        
+
         Formula: E = 0.25*AQ + 0.25*WCB + 0.25*OD + 0.25*ES
-        
+
         Args:
             stock_code: Stock ticker code
             period: Current period
             periods_for_trend: Historical periods for volatility analysis
-        
+
         Returns:
             EarningsQualityScore object or None if insufficient data
         """
@@ -35,42 +38,63 @@ class EarningsQualityService:
         snapshot = self.data_loader.load_snapshot(stock_code, period)
         if not snapshot:
             return None
-        
+        require_fields(
+            snapshot,
+            [
+                "net_income",
+                "operating_income",
+                "total_assets",
+                "net_revenue",
+                "accounts_receivable",
+                "inventory",
+            ],
+            "earnings quality analysis",
+        )
+
         # Load historical snapshots for trend analysis
         if periods_for_trend is None:
-            periods_for_trend = self.data_loader.list_available_periods(stock_code)[-8:]  # Last 8 quarters
-        
+            periods_for_trend = self.data_loader.list_available_periods(stock_code)[
+                -8:
+            ]  # Last 8 quarters
+
         historical_snapshots = self.data_loader.load_multiple_periods(stock_code, periods_for_trend)
-        
+        historical_snapshots = [
+            historical for historical in historical_snapshots if historical.report_period <= period
+        ]
+
         red_flags = []
-        
+
         # Component 1: Accrual Quality (AQ)
         accrual_score, accrual_flags = self._score_accrual_quality(snapshot)
         red_flags.extend(accrual_flags)
-        
+
         # Component 2: Working Capital Behavior (WCB)
         wc_score, wc_flags = self._score_working_capital(snapshot, historical_snapshots)
         red_flags.extend(wc_flags)
-        
+
         # Component 3: One-off Dependency (OD) - inverted
         oneoff_score, oneoff_flags = self._score_one_off_dependency(snapshot)
         red_flags.extend(oneoff_flags)
-        
+
         # Component 4: Earnings Stability (ES)
         stability_score, stability_flags = self._score_earnings_stability(historical_snapshots)
         red_flags.extend(stability_flags)
-        
+
         # Generate commentary
         commentary = self._generate_commentary(
             accrual_score, wc_score, oneoff_score, stability_score, red_flags
         )
-        
+
         details = {
             "accrual_ratio": self._calculate_accrual_ratio(snapshot),
-            "earnings_volatility": calculate_volatility([s.net_income for s in historical_snapshots]) if len(historical_snapshots) >= 4 else None,
+            "earnings_volatility": (
+                calculate_volatility([s.net_income for s in historical_snapshots])
+                if len(historical_snapshots) >= 4
+                else None
+            ),
             "num_red_flags": len(red_flags),
         }
-        
+
         return EarningsQualityScore(
             accrual_quality=round(accrual_score, 2),
             working_capital_behavior=round(wc_score, 2),
@@ -78,25 +102,28 @@ class EarningsQualityService:
             earnings_stability=round(stability_score, 2),
             red_flags=red_flags,
             commentary=commentary,
-            details=details
+            details=details,
         )
-    
+
     def _calculate_accrual_ratio(self, snapshot: FinancialSnapshot) -> float:
         """Calculate accrual ratio: (Net Income - Operating CF) / Total Assets."""
-        if not snapshot.operating_cash_flow or snapshot.total_assets == 0:
+        require_fields(snapshot, ["net_income", "total_assets"], "accrual ratio calculation")
+        total_assets = required_float(snapshot, "total_assets", "accrual ratio calculation")
+        if not snapshot.operating_cash_flow or total_assets == 0:
             return 0.0
-        
-        accruals = snapshot.net_income - snapshot.operating_cash_flow
-        return accruals / snapshot.total_assets
-    
+
+        net_income = required_float(snapshot, "net_income", "accrual ratio calculation")
+        accruals = net_income - snapshot.operating_cash_flow
+        return accruals / total_assets
+
     def _score_accrual_quality(self, snapshot: FinancialSnapshot) -> tuple:
         """Score accrual quality (0-100). Lower accruals = higher quality."""
         accrual_ratio = abs(self._calculate_accrual_ratio(snapshot))
-        flags = []
-        
+        flags: List[str] = []
+
         # High accruals = red flag
         threshold = self.settings.accrual_ratio_threshold
-        
+
         if accrual_ratio >= threshold * 2:
             score = 20.0
             flags.append(f"Very high accruals ({accrual_ratio:.1%}) - earnings quality concern")
@@ -107,59 +134,81 @@ class EarningsQualityService:
             score = 75.0
         else:
             score = 100.0
-        
+
         return score, flags
-    
+
     def _score_working_capital(
-        self, 
-        current: FinancialSnapshot, 
-        historical: List[FinancialSnapshot]
+        self, current: FinancialSnapshot, historical: List[FinancialSnapshot]
     ) -> tuple:
         """Score working capital behavior (0-100)."""
-        flags = []
-        
+        flags: List[str] = []
+
         if len(historical) < 2:
             return 50.0, flags  # Neutral if insufficient data
-        
+
         # Find previous period
         previous = historical[-2] if len(historical) >= 2 else historical[-1]
-        
+        required = ["net_revenue", "accounts_receivable", "inventory"]
+        if any(getattr(current, field, None) is None for field in required):
+            return 50.0, flags
+        if any(getattr(previous, field, None) is None for field in required):
+            return 50.0, flags
+
         # Check if receivables/inventory growing faster than revenue
-        revenue_growth = (current.net_revenue - previous.net_revenue) / previous.net_revenue if previous.net_revenue > 0 else 0
-        
-        receivable_growth = (current.accounts_receivable - previous.accounts_receivable) / previous.accounts_receivable if previous.accounts_receivable > 0 else 0
-        
-        inventory_growth = (current.inventory - previous.inventory) / previous.inventory if previous.inventory > 0 else 0
-        
+        current_revenue = required_float(current, "net_revenue", "working capital score")
+        previous_revenue = required_float(previous, "net_revenue", "working capital score")
+        current_ar = required_float(current, "accounts_receivable", "working capital score")
+        previous_ar = required_float(previous, "accounts_receivable", "working capital score")
+        current_inventory = required_float(current, "inventory", "working capital score")
+        previous_inventory = required_float(previous, "inventory", "working capital score")
+
+        revenue_growth = (
+            (current_revenue - previous_revenue) / previous_revenue if previous_revenue > 0 else 0
+        )
+
+        receivable_growth = (current_ar - previous_ar) / previous_ar if previous_ar > 0 else 0
+
+        inventory_growth = (
+            (current_inventory - previous_inventory) / previous_inventory
+            if previous_inventory > 0
+            else 0
+        )
+
         threshold = self.settings.working_capital_spike_threshold
         score = 100.0
-        
+
         # Receivables growing much faster than revenue = red flag
         if receivable_growth > revenue_growth + threshold:
             score -= 25
-            flags.append(f"Receivables growing faster than revenue (AR: {receivable_growth:.1%} vs Rev: {revenue_growth:.1%})")
-        
+            flags.append(
+                f"Receivables growing faster than revenue (AR: {receivable_growth:.1%} vs Rev: {revenue_growth:.1%})"
+            )
+
         # Inventory growing much faster than revenue = red flag
         if inventory_growth > revenue_growth + threshold:
             score -= 25
-            flags.append(f"Inventory growing faster than revenue (Inv: {inventory_growth:.1%} vs Rev: {revenue_growth:.1%})")
-        
+            flags.append(
+                f"Inventory growing faster than revenue (Inv: {inventory_growth:.1%} vs Rev: {revenue_growth:.1%})"
+            )
+
         return max(0.0, score), flags
-    
+
     def _score_one_off_dependency(self, snapshot: FinancialSnapshot) -> tuple:
         """Score one-off income dependency (0-100). Higher one-offs = lower score."""
-        flags = []
-        
+        flags: List[str] = []
+
         # Approximate one-off income as (Net Income - Operating Income)
         # This captures non-operating gains/losses
-        if snapshot.net_income == 0:
+        net_income = required_float(snapshot, "net_income", "one-off dependency score")
+        operating_income = required_float(snapshot, "operating_income", "one-off dependency score")
+        if net_income == 0:
             return 50.0, flags
-        
-        non_operating = snapshot.net_income - snapshot.operating_income
-        oneoff_ratio = abs(non_operating) / abs(snapshot.net_income)
-        
+
+        non_operating = net_income - operating_income
+        oneoff_ratio = abs(non_operating) / abs(net_income)
+
         threshold = self.settings.one_off_income_threshold
-        
+
         if oneoff_ratio >= threshold * 2:
             score = 20.0
             flags.append(f"High non-operating income dependency ({oneoff_ratio:.1%})")
@@ -170,19 +219,21 @@ class EarningsQualityService:
             score = 75.0
         else:
             score = 100.0
-        
+
         return score, flags
-    
+
     def _score_earnings_stability(self, historical: List[FinancialSnapshot]) -> tuple:
         """Score earnings stability based on volatility (0-100)."""
-        flags = []
-        
+        flags: List[str] = []
+
         if len(historical) < 4:
             return 50.0, flags  # Neutral if insufficient data
-        
-        earnings = [s.net_income for s in historical]
+
+        earnings = [s.net_income for s in historical if s.net_income is not None]
+        if len(earnings) < 4:
+            return 50.0, flags
         volatility = calculate_volatility(earnings)
-        
+
         # Lower volatility = higher score
         if volatility <= 0.1:  # CV < 10%
             score = 100.0
@@ -196,20 +247,15 @@ class EarningsQualityService:
         else:
             score = 20.0
             flags.append(f"Very high earnings volatility (CV: {volatility:.1%})")
-        
+
         return score, flags
-    
+
     def _generate_commentary(
-        self,
-        accrual: float,
-        wc: float,
-        oneoff: float,
-        stability: float,
-        red_flags: List[str]
+        self, accrual: float, wc: float, oneoff: float, stability: float, red_flags: List[str]
     ) -> str:
         """Generate qualitative commentary."""
         total = (accrual + wc + oneoff + stability) / 4
-        
+
         if total >= 80:
             quality = "High"
         elif total >= 60:
@@ -218,14 +264,14 @@ class EarningsQualityService:
             quality = "Fair"
         else:
             quality = "Poor"
-        
+
         parts = [f"{quality} earnings quality (score: {total:.0f})"]
-        
+
         if red_flags:
             parts.append(f"{len(red_flags)} concern(s) identified")
         else:
             parts.append("No major concerns")
-        
+
         # Add specific insights
         if accrual < 50:
             parts.append("high accruals")
@@ -235,5 +281,5 @@ class EarningsQualityService:
             parts.append("one-off income dependency")
         if stability < 50:
             parts.append("volatile earnings")
-        
+
         return ". ".join(parts) + "."

@@ -14,10 +14,10 @@ agent = FinancialAgent()
 async def query_agent(query: AgentQuery) -> AgentResponse:
     """
     Submit a natural language query to the financial agent.
-    
+
     Args:
         query: AgentQuery with natural language question and context
-    
+
     Returns:
         AgentResponse with analysis and answer
     """

@@ -1,13 +1,14 @@
 """Tests for services."""
 
 import pytest
+from app.core import InsufficientDataError
 from app.services import ManagementService, EarningsQualityService, ROICWACCService
 
 
 def test_management_service_tenure_scoring():
     """Test management service tenure scoring."""
     service = ManagementService()
-    
+
     # Test with good tenure
     score = service.calculate_score(
         ceo_tenure_years=5,
@@ -17,7 +18,7 @@ def test_management_service_tenure_scoring():
         insider_sells=1,
         governance_incidents=0,
     )
-    
+
     assert score.total > 60  # Should be good overall
     assert score.tenure_stability > 70  # Good tenure
     assert score.governance_red_flags == 100  # No incidents
@@ -26,7 +27,7 @@ def test_management_service_tenure_scoring():
 def test_management_service_poor_governance():
     """Test management service with governance issues."""
     service = ManagementService()
-    
+
     score = service.calculate_score(
         ceo_tenure_years=1,
         cfo_tenure_years=1,
@@ -35,7 +36,7 @@ def test_management_service_poor_governance():
         insider_sells=5,
         governance_incidents=3,
     )
-    
+
     assert score.total < 50  # Should be poor overall
     assert score.governance_red_flags < 50  # Multiple incidents
 
@@ -54,3 +55,14 @@ def test_earnings_quality_service():
     # Placeholder for now
     service = EarningsQualityService()
     assert service is not None
+
+
+def test_roic_wacc_reports_missing_fields():
+    """ROIC/WACC should fail explicitly when required financial fields are missing."""
+    service = ROICWACCService()
+
+    with pytest.raises(InsufficientDataError) as exc_info:
+        service.analyze("2330", "2024Q1")
+
+    assert "operating_income" in exc_info.value.missing_fields
+    assert "equity" in exc_info.value.missing_fields

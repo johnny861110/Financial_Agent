@@ -1,7 +1,9 @@
 """API routers for financial endpoints."""
 
 from fastapi import APIRouter, HTTPException
-from typing import List, Optional
+from typing import List, NoReturn, Optional
+from pydantic import BaseModel, Field
+from app.core import InsufficientDataError
 from app.models import (
     FinancialSnapshot,
     TrendAnalysis,
@@ -25,7 +27,72 @@ from app.services import (
     EarlyWarningService,
 )
 
+
+class PeerCompareRequest(BaseModel):
+    """Request body for peer company comparison."""
+
+    stock_codes: List[str] = Field(..., min_length=2)
+    period: str
+    metrics: Optional[List[str]] = None
+
+
+class ManagementScoreRequest(BaseModel):
+    """Request body for management quality scoring."""
+
+    ceo_tenure_years: float = 0
+    cfo_tenure_years: float = 0
+    board_independence_ratio: float = 0.3
+    independent_directors: int = 0
+    total_directors: int = 0
+    family_controlled: bool = False
+    insider_buys: int = 0
+    insider_sells: int = 0
+    governance_incidents: int = 0
+    audit_issues: int = 0
+    related_party_transactions: int = 0
+
+
+class ROICWACCRequest(BaseModel):
+    """Optional assumptions for ROIC/WACC analysis."""
+
+    beta: Optional[float] = None
+    cost_of_debt: Optional[float] = None
+    tax_rate: Optional[float] = None
+
+
+class FactorExposureRequest(BaseModel):
+    """Optional peer universe for factor exposure analysis."""
+
+    peer_stocks: Optional[List[str]] = None
+
+
+class CapitalAllocationRequest(BaseModel):
+    """Request body for capital allocation analysis."""
+
+    dividends: float = 0.0
+    buybacks: float = 0.0
+    capex: float = 0.0
+    rd_expense: float = 0.0
+    ma_spending: float = 0.0
+
+
 router = APIRouter(prefix="/api", tags=["financials"])
+
+
+def _not_found(message: str) -> NoReturn:
+    raise HTTPException(status_code=404, detail={"error": "not_found", "message": message})
+
+
+def _insufficient_data(exc: InsufficientDataError) -> NoReturn:
+    raise HTTPException(
+        status_code=422,
+        detail={
+            "error": "insufficient_data",
+            "message": str(exc),
+            "missing_fields": exc.missing_fields,
+        },
+    )
+
 
 # Initialize services
 snapshot_service = SnapshotService()
@@ -44,7 +111,7 @@ async def get_financial_snapshot(stock_code: str, period: str):
     """Get financial snapshot for a specific stock and period."""
     result = snapshot_service.get_summary(stock_code, period)
     if not result:
-        raise HTTPException(status_code=404, detail="Financial data not found")
+        _not_found("Financial data not found")
     return result
 
 
@@ -52,17 +119,17 @@ async def get_financial_snapshot(stock_code: str, period: str):
 async def get_trend_analysis(stock_code: str, periods: Optional[str] = None):
     """
     Get trend analysis for a stock.
-    
+
     Args:
         stock_code: Stock ticker code
         periods: Optional comma-separated list of periods
     """
-    period_list = [p.strip() for p in periods.split(',')] if periods else None
-    
+    period_list = [p.strip() for p in periods.split(",")] if periods else None
+
     result = trend_service.analyze_trend(stock_code, period_list)
     if not result:
-        raise HTTPException(status_code=404, detail="Insufficient data for trend analysis")
-    
+        _not_found("Insufficient data for trend analysis")
+
     return {
         "stock_code": result.stock_code,
         "company_name": result.company_name,
@@ -82,23 +149,23 @@ async def get_trend_analysis(stock_code: str, periods: Optional[str] = None):
 
 
 @router.post("/peers/compare")
-async def compare_peers(
-    stock_codes: List[str],
-    period: str,
-    metrics: Optional[List[str]] = None
-):
+async def compare_peers(request: PeerCompareRequest):
     """
     Compare peer companies on key metrics.
-    
+
     Args:
         stock_codes: List of stock codes to compare
         period: Period identifier
         metrics: Optional list of metrics to compare
     """
-    result = peer_service.compare_peers(stock_codes, period, metrics)
+    result = peer_service.compare_peers(
+        request.stock_codes,
+        request.period,
+        request.metrics,
+    )
     if not result:
-        raise HTTPException(status_code=404, detail="Insufficient data for comparison")
-    
+        _not_found("Insufficient data for comparison")
+
     return {
         "period": result.period,
         "comparisons": [
@@ -117,34 +184,22 @@ async def compare_peers(
 
 
 @router.post("/scores/management")
-async def calculate_management_score(
-    ceo_tenure_years: float = 0,
-    cfo_tenure_years: float = 0,
-    board_independence_ratio: float = 0.3,
-    independent_directors: int = 0,
-    total_directors: int = 0,
-    family_controlled: bool = False,
-    insider_buys: int = 0,
-    insider_sells: int = 0,
-    governance_incidents: int = 0,
-    audit_issues: int = 0,
-    related_party_transactions: int = 0,
-):
+async def calculate_management_score(request: ManagementScoreRequest):
     """Calculate management quality score."""
     result = management_service.calculate_score(
-        ceo_tenure_years=ceo_tenure_years,
-        cfo_tenure_years=cfo_tenure_years,
-        board_independence_ratio=board_independence_ratio,
-        independent_directors=independent_directors,
-        total_directors=total_directors,
-        family_controlled=family_controlled,
-        insider_buys=insider_buys,
-        insider_sells=insider_sells,
-        governance_incidents=governance_incidents,
-        audit_issues=audit_issues,
-        related_party_transactions=related_party_transactions,
+        ceo_tenure_years=request.ceo_tenure_years,
+        cfo_tenure_years=request.cfo_tenure_years,
+        board_independence_ratio=request.board_independence_ratio,
+        independent_directors=request.independent_directors,
+        total_directors=request.total_directors,
+        family_controlled=request.family_controlled,
+        insider_buys=request.insider_buys,
+        insider_sells=request.insider_sells,
+        governance_incidents=request.governance_incidents,
+        audit_issues=request.audit_issues,
+        related_party_transactions=request.related_party_transactions,
     )
-    
+
     return {
         "total_score": result.total,
         "components": {
@@ -161,10 +216,13 @@ async def calculate_management_score(
 @router.get("/scores/earnings_quality/{stock_code}/{period}")
 async def calculate_earnings_quality_score(stock_code: str, period: str):
     """Calculate earnings quality score."""
-    result = earnings_quality_service.calculate_score(stock_code, period)
+    try:
+        result = earnings_quality_service.calculate_score(stock_code, period)
+    except InsufficientDataError as exc:
+        _insufficient_data(exc)
     if not result:
-        raise HTTPException(status_code=404, detail="Data not found")
-    
+        _not_found("Data not found")
+
     return {
         "total_score": result.total,
         "components": {
@@ -179,21 +237,26 @@ async def calculate_earnings_quality_score(stock_code: str, period: str):
     }
 
 
-@router.get("/roic_wacc/{stock_code}/{period}")
+@router.post("/roic_wacc/{stock_code}/{period}")
 async def analyze_roic_wacc(
     stock_code: str,
     period: str,
-    beta: Optional[float] = None,
-    cost_of_debt: Optional[float] = None,
-    tax_rate: Optional[float] = None,
+    request: ROICWACCRequest = ROICWACCRequest(),
 ):
     """Analyze ROIC vs WACC for value creation."""
-    result = roic_wacc_service.analyze(
-        stock_code, period, beta, cost_of_debt, tax_rate
-    )
+    try:
+        result = roic_wacc_service.analyze(
+            stock_code,
+            period,
+            request.beta,
+            request.cost_of_debt,
+            request.tax_rate,
+        )
+    except InsufficientDataError as exc:
+        _insufficient_data(exc)
     if not result:
-        raise HTTPException(status_code=404, detail="Data not found")
-    
+        _not_found("Data not found")
+
     return {
         "nopat": result.nopat,
         "invested_capital": result.invested_capital,
@@ -208,26 +271,27 @@ async def analyze_roic_wacc(
     }
 
 
-@router.get("/factors/{stock_code}/{period}")
+@router.post("/factors/{stock_code}/{period}")
 async def calculate_factor_exposures(
     stock_code: str,
     period: str,
-    peer_stocks: Optional[str] = None
+    request: FactorExposureRequest = FactorExposureRequest(),
 ):
     """
     Calculate factor exposures.
-    
+
     Args:
         stock_code: Stock ticker code
         period: Period identifier
         peer_stocks: Optional comma-separated peer stock codes
     """
-    peer_list = [p.strip() for p in peer_stocks.split(',')] if peer_stocks else None
-    
-    result = factor_service.calculate_exposures(stock_code, period, peer_list)
+    try:
+        result = factor_service.calculate_exposures(stock_code, period, request.peer_stocks)
+    except InsufficientDataError as exc:
+        _insufficient_data(exc)
     if not result:
-        raise HTTPException(status_code=404, detail="Insufficient data")
-    
+        _not_found("Insufficient data")
+
     return {
         "quality": result.quality,
         "value": result.value,
@@ -243,19 +307,21 @@ async def calculate_factor_exposures(
 async def analyze_capital_allocation(
     stock_code: str,
     period: str,
-    dividends: float = 0.0,
-    buybacks: float = 0.0,
-    capex: float = 0.0,
-    rd_expense: float = 0.0,
-    ma_spending: float = 0.0,
+    request: CapitalAllocationRequest,
 ):
     """Analyze capital allocation strategy."""
     result = capital_allocation_service.analyze(
-        stock_code, period, dividends, buybacks, capex, rd_expense, ma_spending
+        stock_code,
+        period,
+        request.dividends,
+        request.buybacks,
+        request.capex,
+        request.rd_expense,
+        request.ma_spending,
     )
     if not result:
-        raise HTTPException(status_code=404, detail="Data not found")
-    
+        _not_found("Data not found")
+
     return {
         "period": result.period,
         "dividends": result.dividends,
@@ -274,10 +340,13 @@ async def analyze_capital_allocation(
 @router.get("/ews/{stock_code}/{period}")
 async def detect_early_warnings(stock_code: str, period: str):
     """Run Early Warning System to detect financial red flags."""
-    result = ews_service.detect_warnings(stock_code, period)
+    try:
+        result = ews_service.detect_warnings(stock_code, period)
+    except InsufficientDataError as exc:
+        _insufficient_data(exc)
     if not result:
-        raise HTTPException(status_code=404, detail="Data not found")
-    
+        _not_found("Data not found")
+
     return {
         "warning_level": result.warning_level,
         "signal_count": result.signal_count,
