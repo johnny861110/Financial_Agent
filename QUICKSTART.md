@@ -152,7 +152,16 @@ curl -X POST http://localhost:8000/api/peers/compare \
 ### 4. Calculate Management Score
 
 ```bash
-curl -X POST "http://localhost:8000/api/scores/management?ceo_tenure_years=5&cfo_tenure_years=4&board_independence_ratio=0.4&insider_buys=3&insider_sells=1&governance_incidents=0"
+curl -X POST http://localhost:8000/api/scores/management \
+  -H "Content-Type: application/json" \
+  -d '{
+    "ceo_tenure_years": 5,
+    "cfo_tenure_years": 4,
+    "board_independence_ratio": 0.4,
+    "insider_buys": 3,
+    "insider_sells": 1,
+    "governance_incidents": 0
+  }'
 ```
 
 ### 5. Agent Natural Language Query

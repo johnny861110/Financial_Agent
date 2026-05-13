@@ -103,8 +103,8 @@ Financial_Agent/
 ### Scoring & Analytics
 - `POST /api/scores/management` - Management quality score
 - `GET /api/scores/earnings_quality/{stock}/{period}` - Earnings quality
-- `GET /api/roic_wacc/{stock}/{period}` - ROIC vs WACC
-- `GET /api/factors/{stock}/{period}` - Factor exposures
+- `POST /api/roic_wacc/{stock}/{period}` - ROIC vs WACC
+- `POST /api/factors/{stock}/{period}` - Factor exposures
 - `POST /api/capital_allocation/{stock}/{period}` - Capital allocation
 - `GET /api/ews/{stock}/{period}` - Early Warning System
 

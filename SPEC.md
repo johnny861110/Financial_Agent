@@ -4,6 +4,11 @@
 **狀態**: 需求開發中  
 **目標**: 將 FIA 從靜態原型轉化為具備「業界標準估計法」與「多智能體對抗架構」的專業投研平台。
 
+> Implementation note: this document is the target roadmap. The current runtime
+> is a JSON-file-based FastAPI/Streamlit/LangGraph application. PostgreSQL,
+> Redis, pgvector, market-data beta estimation, multi-agent debate, PDF export,
+> and full RAG ingestion are not yet implemented.
+
 ---
 
 ## 1. 系統願景 (Project Vision)
