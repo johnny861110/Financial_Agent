@@ -7,6 +7,7 @@ from app.api import financials_router, agent_router
 
 # Initialize settings
 settings = get_settings()
+cors_origins = [origin.strip() for origin in settings.api_cors_origins.split(",") if origin.strip()]
 
 # Create FastAPI app
 app = FastAPI(
@@ -20,7 +21,7 @@ app = FastAPI(
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Configure appropriately for production
+    allow_origins=cors_origins or ["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -54,7 +55,7 @@ async def health_check():
 
 if __name__ == "__main__":
     import uvicorn
-    
+
     uvicorn.run(
         "app.main:app",
         host=settings.api_host,

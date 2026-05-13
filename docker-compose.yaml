@@ -13,6 +13,13 @@ services:
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - LLM_MODEL=${LLM_MODEL:-gpt-3.5-turbo}
       - LLM_TEMPERATURE=${LLM_TEMPERATURE:-1.0}
+
+      # Langfuse Observability
+      - LANGFUSE_ENABLED=${LANGFUSE_ENABLED:-false}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:-}
+      - LANGFUSE_BASE_URL=${LANGFUSE_BASE_URL:-}
+      - LANGFUSE_REQUIRED=${LANGFUSE_REQUIRED:-false}
       
       # Data Configuration
       - DATA_DIR=/app/data
@@ -22,6 +29,7 @@ services:
       - API_HOST=0.0.0.0
       - API_PORT=8000
       - API_RELOAD=false
+      - API_CORS_ORIGINS=${API_CORS_ORIGINS:-http://localhost:8501,http://127.0.0.1:8501}
       
       # Logging
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
@@ -52,6 +60,13 @@ services:
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - LLM_MODEL=${LLM_MODEL:-gpt-3.5-turbo}
       - LLM_TEMPERATURE=${LLM_TEMPERATURE:-1.0}
+
+      # Langfuse Observability
+      - LANGFUSE_ENABLED=${LANGFUSE_ENABLED:-false}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:-}
+      - LANGFUSE_BASE_URL=${LANGFUSE_BASE_URL:-}
+      - LANGFUSE_REQUIRED=${LANGFUSE_REQUIRED:-false}
       
       # Data Configuration
       - DATA_DIR=/app/data
