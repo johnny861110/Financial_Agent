@@ -1,18 +1,22 @@
-"""Data loading utilities."""
+"""Backward-compatible facade over the configured financial data provider."""
 
-import json
-from pathlib import Path
 from typing import Optional, List
+
+from app.data.factory import get_data_provider
+from app.data.models import SnapshotRecord
+from app.data.providers import FinancialDataProvider
 from app.models import FinancialSnapshot
-from app.core.config import get_settings
 
 
 class DataLoader:
-    """Load financial data from JSON files."""
+    """Load financial data without exposing its backing provider to services."""
 
-    def __init__(self):
-        self.settings = get_settings()
-        self.data_path = self.settings.financial_data_path
+    def __init__(self, provider: FinancialDataProvider | None = None):
+        self.provider = provider or get_data_provider()
+
+    def load_record(self, stock_code: str, period: str) -> Optional[SnapshotRecord]:
+        """Load a snapshot together with source and quality metadata."""
+        return self.provider.load_record(stock_code, period)
 
     def load_snapshot(self, stock_code: str, period: str) -> Optional[FinancialSnapshot]:
         """
@@ -25,19 +29,8 @@ class DataLoader:
         Returns:
             FinancialSnapshot or None if not found
         """
-        filename = f"{stock_code}_{period}_enhanced.json"
-        file_path = Path(self.data_path) / filename
-
-        if not file_path.exists():
-            return None
-
-        try:
-            with open(file_path, "r", encoding="utf-8") as f:
-                data = json.load(f)
-            return FinancialSnapshot(**data)
-        except Exception as e:
-            print(f"Error loading {filename}: {e}")
-            return None
+        record = self.load_record(stock_code, period)
+        return record.snapshot if record else None
 
     def load_multiple_periods(self, stock_code: str, periods: List[str]) -> List[FinancialSnapshot]:
         """
@@ -67,18 +60,7 @@ class DataLoader:
         Returns:
             List of period identifiers
         """
-        pattern = f"{stock_code}_*_enhanced.json"
-        files = list(Path(self.data_path).glob(pattern))
-
-        periods = []
-        for file in files:
-            # Extract period from filename: stock_PERIOD_enhanced.json
-            parts = file.stem.split("_")
-            if len(parts) >= 2:
-                period = parts[1]
-                periods.append(period)
-
-        return sorted(periods)
+        return self.provider.list_available_periods(stock_code)
 
     def list_all_stocks(self) -> List[str]:
         """
@@ -87,16 +69,7 @@ class DataLoader:
         Returns:
             List of stock codes
         """
-        files = list(Path(self.data_path).glob("*_enhanced.json"))
-
-        stocks = set()
-        for file in files:
-            parts = file.stem.split("_")
-            if parts:
-                stock_code = parts[0]
-                stocks.add(stock_code)
-
-        return sorted(list(stocks))
+        return self.provider.list_all_stocks()
 
 
 def enrich_snapshot(snapshot: FinancialSnapshot) -> FinancialSnapshot:

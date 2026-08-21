@@ -1,0 +1,35 @@
+{
+  "schema_version": "1.0",
+  "identity": {
+    "stock_code": "2330",
+    "company_name": "Test Company",
+    "period": "2025Q1"
+  },
+  "status": "ready",
+  "quality": {
+    "score": 0.9,
+    "missing_fields": [],
+    "validation_failures": []
+  },
+  "freshness": {
+    "updated_at": "2026-08-21T10:00:00Z",
+    "is_stale": false
+  },
+  "snapshot": {
+    "net_revenue": 1000,
+    "net_income": 200,
+    "eps_basic": 2.5,
+    "total_assets": 5000,
+    "total_liabilities": 2000,
+    "equity": 3000
+  },
+  "metrics": {},
+  "events": [],
+  "evidence": [
+    {
+      "field": "net_revenue",
+      "source_type": "xbrl",
+      "confidence": 1.0
+    }
+  ]
+}
