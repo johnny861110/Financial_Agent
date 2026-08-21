@@ -8,8 +8,8 @@ from app.core import DataLoader, get_settings, require_fields, required_float, s
 class ROICWACCService:
     """Service for ROIC vs WACC analysis."""
 
-    def __init__(self):
-        self.data_loader = DataLoader()
+    def __init__(self, data_loader: DataLoader | None = None):
+        self.data_loader = data_loader or DataLoader()
         self.settings = get_settings()
 
     def analyze(

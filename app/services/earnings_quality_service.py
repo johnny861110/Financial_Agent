@@ -14,9 +14,9 @@ from app.core import (
 class EarningsQualityService:
     """Service for calculating earnings quality scores."""
 
-    def __init__(self):
+    def __init__(self, data_loader: DataLoader | None = None):
         self.settings = get_settings()
-        self.data_loader = DataLoader()
+        self.data_loader = data_loader or DataLoader()
 
     def calculate_score(
         self, stock_code: str, period: str, periods_for_trend: Optional[List[str]] = None
@@ -88,7 +88,9 @@ class EarningsQualityService:
         details = {
             "accrual_ratio": self._calculate_accrual_ratio(snapshot),
             "earnings_volatility": (
-                calculate_volatility([s.net_income for s in historical_snapshots])
+                calculate_volatility(
+                    [s.net_income for s in historical_snapshots if s.net_income is not None]
+                )
                 if len(historical_snapshots) >= 4
                 else None
             ),

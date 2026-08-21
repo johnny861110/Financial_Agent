@@ -8,8 +8,8 @@ from app.core import DataLoader
 class TrendService:
     """Service for analyzing trends across multiple periods."""
 
-    def __init__(self):
-        self.data_loader = DataLoader()
+    def __init__(self, data_loader: DataLoader | None = None):
+        self.data_loader = data_loader or DataLoader()
 
     def analyze_trend(
         self, stock_code: str, periods: Optional[List[str]] = None

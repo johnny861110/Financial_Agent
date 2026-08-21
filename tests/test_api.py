@@ -25,6 +25,27 @@ def test_health_check():
     assert data["service"] == "financial-agent"
 
 
+def test_liveness_and_readiness_endpoints():
+    live = client.get("/health/live")
+    ready = client.get("/health/ready")
+
+    assert live.status_code == 200
+    assert ready.status_code == 200
+    assert ready.json()["data_provider"] == "json"
+
+
+def test_missing_data_status_is_structured():
+    response = client.get("/api/data/999999/2025Q4/status")
+    assert response.status_code == 200
+    assert response.json()["status"] == "missing"
+    assert response.json()["available"] is False
+
+
+def test_json_refresh_returns_service_unavailable():
+    response = client.post("/api/data/999999/2025Q4/refresh")
+    assert response.status_code == 503
+
+
 def test_management_score_endpoint():
     """Test management score calculation endpoint."""
     response = client.post(

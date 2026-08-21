@@ -1,31 +1,11 @@
 """API routers for financial endpoints."""
 
 from fastapi import APIRouter, HTTPException
+from fastapi.concurrency import run_in_threadpool
 from typing import List, NoReturn, Optional
 from pydantic import BaseModel, Field
 from app.core import InsufficientDataError
-from app.models import (
-    FinancialSnapshot,
-    TrendAnalysis,
-    PeerAnalysis,
-    ManagementScore,
-    EarningsQualityScore,
-    ROICWACCAnalysis,
-    FactorExposures,
-    CapitalAllocationAnalysis,
-    EarlyWarningSystem,
-)
-from app.services import (
-    SnapshotService,
-    TrendService,
-    PeerService,
-    ManagementService,
-    EarningsQualityService,
-    ROICWACCService,
-    FactorService,
-    CapitalAllocationService,
-    EarlyWarningService,
-)
+from app.services.factory import get_service_registry
 
 
 class PeerCompareRequest(BaseModel):
@@ -94,22 +74,12 @@ def _insufficient_data(exc: InsufficientDataError) -> NoReturn:
     )
 
 
-# Initialize services
-snapshot_service = SnapshotService()
-trend_service = TrendService()
-peer_service = PeerService()
-management_service = ManagementService()
-earnings_quality_service = EarningsQualityService()
-roic_wacc_service = ROICWACCService()
-factor_service = FactorService()
-capital_allocation_service = CapitalAllocationService()
-ews_service = EarlyWarningService()
-
-
 @router.get("/financials/{stock_code}/{period}")
 async def get_financial_snapshot(stock_code: str, period: str):
     """Get financial snapshot for a specific stock and period."""
-    result = snapshot_service.get_summary(stock_code, period)
+    result = await run_in_threadpool(
+        get_service_registry().snapshot.get_summary, stock_code, period
+    )
     if not result:
         _not_found("Financial data not found")
     return result
@@ -126,7 +96,9 @@ async def get_trend_analysis(stock_code: str, periods: Optional[str] = None):
     """
     period_list = [p.strip() for p in periods.split(",")] if periods else None
 
-    result = trend_service.analyze_trend(stock_code, period_list)
+    result = await run_in_threadpool(
+        get_service_registry().trend.analyze_trend, stock_code, period_list
+    )
     if not result:
         _not_found("Insufficient data for trend analysis")
 
@@ -158,7 +130,8 @@ async def compare_peers(request: PeerCompareRequest):
         period: Period identifier
         metrics: Optional list of metrics to compare
     """
-    result = peer_service.compare_peers(
+    result = await run_in_threadpool(
+        get_service_registry().peer.compare_peers,
         request.stock_codes,
         request.period,
         request.metrics,
@@ -186,7 +159,8 @@ async def compare_peers(request: PeerCompareRequest):
 @router.post("/scores/management")
 async def calculate_management_score(request: ManagementScoreRequest):
     """Calculate management quality score."""
-    result = management_service.calculate_score(
+    result = await run_in_threadpool(
+        get_service_registry().management.calculate_score,
         ceo_tenure_years=request.ceo_tenure_years,
         cfo_tenure_years=request.cfo_tenure_years,
         board_independence_ratio=request.board_independence_ratio,
@@ -217,7 +191,9 @@ async def calculate_management_score(request: ManagementScoreRequest):
 async def calculate_earnings_quality_score(stock_code: str, period: str):
     """Calculate earnings quality score."""
     try:
-        result = earnings_quality_service.calculate_score(stock_code, period)
+        result = await run_in_threadpool(
+            get_service_registry().earnings_quality.calculate_score, stock_code, period
+        )
     except InsufficientDataError as exc:
         _insufficient_data(exc)
     if not result:
@@ -245,7 +221,8 @@ async def analyze_roic_wacc(
 ):
     """Analyze ROIC vs WACC for value creation."""
     try:
-        result = roic_wacc_service.analyze(
+        result = await run_in_threadpool(
+            get_service_registry().roic_wacc.analyze,
             stock_code,
             period,
             request.beta,
@@ -286,7 +263,12 @@ async def calculate_factor_exposures(
         peer_stocks: Optional comma-separated peer stock codes
     """
     try:
-        result = factor_service.calculate_exposures(stock_code, period, request.peer_stocks)
+        result = await run_in_threadpool(
+            get_service_registry().factor.calculate_exposures,
+            stock_code,
+            period,
+            request.peer_stocks,
+        )
     except InsufficientDataError as exc:
         _insufficient_data(exc)
     if not result:
@@ -310,7 +292,8 @@ async def analyze_capital_allocation(
     request: CapitalAllocationRequest,
 ):
     """Analyze capital allocation strategy."""
-    result = capital_allocation_service.analyze(
+    result = await run_in_threadpool(
+        get_service_registry().capital_allocation.analyze,
         stock_code,
         period,
         request.dividends,
@@ -341,7 +324,9 @@ async def analyze_capital_allocation(
 async def detect_early_warnings(stock_code: str, period: str):
     """Run Early Warning System to detect financial red flags."""
     try:
-        result = ews_service.detect_warnings(stock_code, period)
+        result = await run_in_threadpool(
+            get_service_registry().ews.detect_warnings, stock_code, period
+        )
     except InsufficientDataError as exc:
         _insufficient_data(exc)
     if not result:

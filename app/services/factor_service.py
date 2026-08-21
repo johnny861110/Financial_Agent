@@ -9,8 +9,8 @@ from app.core import DataLoader, calculate_z_score, require_fields, required_flo
 class FactorService:
     """Service for calculating factor exposures."""
 
-    def __init__(self):
-        self.data_loader = DataLoader()
+    def __init__(self, data_loader: DataLoader | None = None):
+        self.data_loader = data_loader or DataLoader()
 
     def calculate_exposures(
         self, stock_code: str, period: str, peer_stocks: Optional[List[str]] = None

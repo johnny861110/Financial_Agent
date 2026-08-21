@@ -14,8 +14,8 @@ from app.core import (
 class EarlyWarningService:
     """Service for detecting financial red flags and risks."""
 
-    def __init__(self):
-        self.data_loader = DataLoader()
+    def __init__(self, data_loader: DataLoader | None = None):
+        self.data_loader = data_loader or DataLoader()
         self.settings = get_settings()
 
     def detect_warnings(

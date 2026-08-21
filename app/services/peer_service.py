@@ -8,8 +8,8 @@ from app.core import DataLoader
 class PeerService:
     """Service for cross-sectional peer comparison."""
 
-    def __init__(self):
-        self.data_loader = DataLoader()
+    def __init__(self, data_loader: DataLoader | None = None):
+        self.data_loader = data_loader or DataLoader()
 
     def compare_peers(
         self, stock_codes: List[str], period: str, metrics: Optional[List[str]] = None

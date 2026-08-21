@@ -1,9 +1,12 @@
 """FastAPI main application."""
 
 from fastapi import FastAPI
+from fastapi.concurrency import run_in_threadpool
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from app.core import get_settings
-from app.api import financials_router, agent_router
+from app.api import financials_router, agent_router, data_router
+from app.data.factory import get_data_provider
 
 # Initialize settings
 settings = get_settings()
@@ -30,6 +33,7 @@ app.add_middleware(
 # Include routers
 app.include_router(financials_router)
 app.include_router(agent_router)
+app.include_router(data_router)
 
 
 @app.get("/")
@@ -50,6 +54,35 @@ async def health_check():
         "status": "healthy",
         "service": "financial-agent",
         "version": "2.0.0",
+    }
+
+
+@app.get("/health/live")
+async def liveness_check():
+    """Report whether the application process can serve requests."""
+    return {"status": "healthy", "service": "financial-agent"}
+
+
+@app.get("/health/ready")
+async def readiness_check():
+    """Report whether the configured financial data provider is reachable."""
+    try:
+        stocks = await run_in_threadpool(get_data_provider().list_all_stocks)
+    except Exception as exc:
+        return JSONResponse(
+            status_code=503,
+            content={
+                "status": "not_ready",
+                "service": "financial-agent",
+                "data_provider": settings.data_provider,
+                "detail": str(exc),
+            },
+        )
+    return {
+        "status": "ready",
+        "service": "financial-agent",
+        "data_provider": settings.data_provider,
+        "available_stocks": len(stocks),
     }
 
 

@@ -8,8 +8,8 @@ from app.core import DataLoader, enrich_snapshot
 class SnapshotService:
     """Service for loading and analyzing single financial snapshots."""
 
-    def __init__(self):
-        self.data_loader = DataLoader()
+    def __init__(self, data_loader: DataLoader | None = None):
+        self.data_loader = data_loader or DataLoader()
 
     def get_snapshot(self, stock_code: str, period: str) -> Optional[FinancialSnapshot]:
         """

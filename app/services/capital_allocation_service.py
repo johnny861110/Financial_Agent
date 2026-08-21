@@ -8,8 +8,8 @@ from app.core import DataLoader
 class CapitalAllocationService:
     """Service for analyzing capital allocation decisions."""
 
-    def __init__(self):
-        self.data_loader = DataLoader()
+    def __init__(self, data_loader: DataLoader | None = None):
+        self.data_loader = data_loader or DataLoader()
 
     def analyze(
         self,
