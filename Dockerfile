@@ -1,48 +1,42 @@
-# Financial Agent Dockerfile
-# Multi-stage build for optimized image size
+# --- Stage 1: Builder ---
+FROM python:3.10-slim AS builder
 
-FROM python:3.10-slim as base
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    curl && \
+    rm -rf /var/lib/apt/lists/* && \
+    curl -LsSf https://astral.sh/uv/install.sh | sh
 
-# Set environment variables
-ENV PYTHONUNBUFFERED=1 \
-    PYTHONDONTWRITEBYTECODE=1 \
-    UV_COMPILE_BYTECODE=1
-
-# Set working directory
+ENV PATH="/root/.local/bin:$PATH"
 WORKDIR /app
 
-# Install system dependencies and uv
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends \
-    build-essential \
-    curl \
-    && curl -LsSf https://astral.sh/uv/install.sh | sh \
-    && rm -rf /var/lib/apt/lists/*
-
-# Add uv to PATH
-ENV PATH="/root/.local/bin:$PATH"
-
-# Copy dependency files
 COPY pyproject.toml uv.lock README.md ./
+RUN uv venv /app/.venv && uv sync --frozen --no-dev
 
-# Install Python dependencies with uv (creates .venv)
-RUN uv sync --frozen --no-dev
+# --- Stage 2: Runtime ---
+FROM python:3.10-slim
 
-# Copy application code
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl && \
+    rm -rf /var/lib/apt/lists/*
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PATH="/app/.venv/bin:$PATH"
+
+WORKDIR /app
+
+COPY --from=builder /app/.venv /app/.venv
 COPY app/ ./app/
 COPY ui/ ./ui/
-COPY streamlit_app.py ./
+COPY streamlit_app.py convert_financial_report.py ./
 COPY data/ ./data/
-COPY convert_financial_report.py ./
 
-# Create non-root user
 RUN useradd -m -u 1000 appuser && \
     chown -R appuser:appuser /app
 
 USER appuser
 
-# Expose ports
 EXPOSE 8000 8501
 
-# Default command
-CMD ["uv", "run", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

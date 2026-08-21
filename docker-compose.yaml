@@ -1,42 +1,50 @@
+x-common-env: &common-env
+  OPENAI_API_KEY: ${OPENAI_API_KEY}
+  LLM_MODEL: ${LLM_MODEL:-gpt-3.5-turbo}
+  LLM_TEMPERATURE: ${LLM_TEMPERATURE:-1.0}
+  LANGFUSE_ENABLED: ${LANGFUSE_ENABLED:-false}
+  LANGFUSE_TRACING_ENABLED: ${LANGFUSE_ENABLED:-false}
+  LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-}
+  LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-}
+  LANGFUSE_BASE_URL: ${LANGFUSE_BASE_URL:-http://langfuse-web:3000}
+  LANGFUSE_HOST: ${LANGFUSE_HOST:-http://langfuse-web:3000}
+  LANGFUSE_REQUIRED: ${LANGFUSE_REQUIRED:-false}
+  DATA_DIR: /app/data
+  FINANCIAL_DATA_PATH: /app/data/financial_reports
+  DATA_PROVIDER: ${DATA_PROVIDER:-json}
+  FINANCIAL_REPORTS_BASE_URL: ${FINANCIAL_REPORTS_BASE_URL:-http://financial-reports:8010}
+  FINANCIAL_REPORTS_TIMEOUT: ${FINANCIAL_REPORTS_TIMEOUT:-10}
+  FINANCIAL_REPORTS_MAX_RETRIES: ${FINANCIAL_REPORTS_MAX_RETRIES:-2}
+  DATA_CACHE_TTL_SECONDS: ${DATA_CACHE_TTL_SECONDS:-300}
+  ALLOW_JSON_FALLBACK: ${ALLOW_JSON_FALLBACK:-true}
+  MIN_DATA_QUALITY_SCORE: ${MIN_DATA_QUALITY_SCORE:-0.6}
+  AUTO_REFRESH_MISSING_DATA: ${AUTO_REFRESH_MISSING_DATA:-false}
+  LOG_LEVEL: ${LOG_LEVEL:-INFO}
+
+x-build: &build
+  build:
+    context: .
+    dockerfile: Dockerfile
+  image: financial-agent:latest
+
 services:
-  # FastAPI Backend Service
   api:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    <<: *build
     container_name: financial-agent-api
     restart: unless-stopped
     ports:
       - "8000:8000"
     environment:
-      # LLM Configuration
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
-      - LLM_MODEL=${LLM_MODEL:-gpt-3.5-turbo}
-      - LLM_TEMPERATURE=${LLM_TEMPERATURE:-1.0}
-
-      # Langfuse Observability
-      - LANGFUSE_ENABLED=${LANGFUSE_ENABLED:-false}
-      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-}
-      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:-}
-      - LANGFUSE_BASE_URL=${LANGFUSE_BASE_URL:-}
-      - LANGFUSE_REQUIRED=${LANGFUSE_REQUIRED:-false}
-      
-      # Data Configuration
-      - DATA_DIR=/app/data
-      - FINANCIAL_DATA_PATH=/app/data/financial_reports
-      
-      # API Configuration
-      - API_HOST=0.0.0.0
-      - API_PORT=8000
-      - API_RELOAD=false
-      - API_CORS_ORIGINS=${API_CORS_ORIGINS:-http://localhost:8501,http://127.0.0.1:8501}
-      
-      # Logging
-      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      <<: *common-env
+      API_HOST: "0.0.0.0"
+      API_PORT: "8000"
+      API_BASE_URL: http://api:8000
+      API_RELOAD: "false"
+      API_CORS_ORIGINS: ${API_CORS_ORIGINS:-http://localhost:8501,http://127.0.0.1:8501}
     volumes:
       - ./data:/app/data:ro
       - ./logs:/app/logs
-    command: uv run uvicorn app.main:app --host 0.0.0.0 --port 8000
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
@@ -45,42 +53,22 @@ services:
       start_period: 40s
     networks:
       - financial-agent-network
+      - langfuse_default
 
-  # Streamlit UI Service
   ui:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    <<: *build
     container_name: financial-agent-ui
     restart: unless-stopped
     ports:
       - "8501:8501"
     environment:
-      # LLM Configuration
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
-      - LLM_MODEL=${LLM_MODEL:-gpt-3.5-turbo}
-      - LLM_TEMPERATURE=${LLM_TEMPERATURE:-1.0}
-
-      # Langfuse Observability
-      - LANGFUSE_ENABLED=${LANGFUSE_ENABLED:-false}
-      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-}
-      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:-}
-      - LANGFUSE_BASE_URL=${LANGFUSE_BASE_URL:-}
-      - LANGFUSE_REQUIRED=${LANGFUSE_REQUIRED:-false}
-      
-      # Data Configuration
-      - DATA_DIR=/app/data
-      - FINANCIAL_DATA_PATH=/app/data/financial_reports
-      
-      # API Configuration (point to API service)
-      - API_HOST=api
-      - API_PORT=8000
-      
-      # Logging
-      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      <<: *common-env
+      API_HOST: api
+      API_PORT: "8000"
+      API_BASE_URL: http://api:8000
     volumes:
       - ./data:/app/data:ro
-    command: uv run streamlit run streamlit_app.py --server.port=8501 --server.address=0.0.0.0
+    command: streamlit run streamlit_app.py --server.port=8501 --server.address=0.0.0.0
     depends_on:
       api:
         condition: service_healthy
@@ -92,11 +80,10 @@ services:
       start_period: 40s
     networks:
       - financial-agent-network
+      - langfuse_default
 
 networks:
   financial-agent-network:
     driver: bridge
-
-volumes:
-  logs:
-    driver: local
+  langfuse_default:
+    external: true
