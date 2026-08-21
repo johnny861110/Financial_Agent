@@ -1,6 +1,6 @@
 """Agent request and response models."""
 
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Literal
 from pydantic import BaseModel, Field
 
 
@@ -11,6 +11,9 @@ class AgentQuery(BaseModel):
     stock_code: Optional[str] = Field(None, description="Stock code if relevant")
     period: Optional[str] = Field(None, description="Period if relevant (e.g., '2023Q3')")
     context: Dict[str, Any] = Field(default_factory=dict, description="Additional context")
+    mode: Literal["auto", "quick", "research"] = Field(
+        default="auto", description="Execution depth"
+    )
 
 
 class AgentResponse(BaseModel):
@@ -22,6 +25,15 @@ class AgentResponse(BaseModel):
     analysis_steps: List[str] = Field(default_factory=list, description="Steps taken")
     data: Dict[str, Any] = Field(default_factory=dict, description="Supporting data")
     confidence: str = Field(default="medium", description="Confidence level: low, medium, high")
+    confidence_score: float = Field(default=0.0, ge=0, le=1)
+    verdict: Optional[str] = None
+    research_plan: List[str] = Field(default_factory=list)
+    findings: List[Dict[str, Any]] = Field(default_factory=list)
+    evidence: List[Dict[str, Any]] = Field(default_factory=list)
+    risks: List[str] = Field(default_factory=list)
+    contradictions: List[str] = Field(default_factory=list)
+    data_gaps: List[str] = Field(default_factory=list)
+    watch_items: List[str] = Field(default_factory=list)
 
 
 class IntentClassification(BaseModel):

@@ -1,8 +1,10 @@
 """Agent tools for LangGraph workflow."""
 
+from dataclasses import dataclass
 from typing import Optional, Dict, Any
 from langchain.tools import tool
-from app.core import InsufficientDataError
+from app.agents.contracts import ToolResult, ToolStatus
+from app.core import DataLoader, InsufficientDataError
 from app.services import (
     SnapshotService,
     TrendService,
@@ -16,26 +18,89 @@ from app.services import (
 )
 
 
-# Initialize services
-snapshot_service = SnapshotService()
-trend_service = TrendService()
-peer_service = PeerService()
-management_service = ManagementService()
-earnings_quality_service = EarningsQualityService()
-roic_wacc_service = ROICWACCService()
-factor_service = FactorService()
-capital_allocation_service = CapitalAllocationService()
-ews_service = EarlyWarningService()
+@dataclass
+class AgentToolServices:
+    """Service registry sharing one configured data loader."""
+
+    snapshot: SnapshotService
+    trend: TrendService
+    peer: PeerService
+    management: ManagementService
+    earnings_quality: EarningsQualityService
+    roic_wacc: ROICWACCService
+    factor: FactorService
+    capital_allocation: CapitalAllocationService
+    ews: EarlyWarningService
+
+    @classmethod
+    def build(cls, data_loader: DataLoader | None = None) -> "AgentToolServices":
+        loader = data_loader or DataLoader()
+        return cls(
+            snapshot=SnapshotService(loader),
+            trend=TrendService(loader),
+            peer=PeerService(loader),
+            management=ManagementService(),
+            earnings_quality=EarningsQualityService(loader),
+            roic_wacc=ROICWACCService(loader),
+            factor=FactorService(loader),
+            capital_allocation=CapitalAllocationService(loader),
+            ews=EarlyWarningService(loader),
+        )
 
 
-def _insufficient_data_response(exc: InsufficientDataError) -> Dict[str, Any]:
+_service_registry: AgentToolServices | None = None
+
+
+def configure_tool_services(data_loader: DataLoader) -> None:
+    """Bind agent tools to the agent's configured data source."""
+    global _service_registry
+    _service_registry = AgentToolServices.build(data_loader)
+
+
+def get_tool_services() -> AgentToolServices:
+    global _service_registry
+    if _service_registry is None:
+        _service_registry = AgentToolServices.build()
+    return _service_registry
+
+
+def _result(
+    tool_name: str,
+    status: ToolStatus,
+    *,
+    finding: str = "",
+    data: dict[str, Any] | None = None,
+    evidence: list[dict[str, Any]] | None = None,
+    warnings: list[str] | None = None,
+    missing_fields: list[str] | None = None,
+    assumptions: dict[str, Any] | None = None,
+    confidence: float = 0.0,
+    error: str | None = None,
+) -> Dict[str, Any]:
+    return ToolResult(
+        tool=tool_name,
+        status=status,
+        finding=finding,
+        data=data or {},
+        evidence=evidence or [],
+        warnings=warnings or [],
+        missing_fields=missing_fields or [],
+        assumptions=assumptions or {},
+        confidence=confidence,
+        error=error,
+    ).model_dump(mode="json")
+
+
+def _insufficient_data_response(tool_name: str, exc: InsufficientDataError) -> Dict[str, Any]:
     """Return a tool-friendly structured insufficient data response."""
-    return {
-        "success": False,
-        "error": "insufficient_data",
-        "message": str(exc),
-        "missing_fields": exc.missing_fields,
-    }
+    return _result(
+        tool_name,
+        "insufficient_data",
+        finding=str(exc),
+        missing_fields=exc.missing_fields,
+        confidence=0.0,
+        error="insufficient_data",
+    )
 
 
 @tool
@@ -50,10 +115,16 @@ def tool_snapshot(stock_code: str, period: str) -> Dict[str, Any]:
     Returns:
         Dictionary with financial snapshot data
     """
-    result = snapshot_service.get_summary(stock_code, period)
+    result = get_tool_services().snapshot.get_summary(stock_code, period)
     if result:
-        return {"success": True, "data": result}
-    return {"success": False, "error": "Data not found"}
+        return _result(
+            "snapshot",
+            "success",
+            finding="Financial snapshot loaded",
+            data=result,
+            confidence=0.85,
+        )
+    return _result("snapshot", "not_found", error="Data not found")
 
 
 @tool
@@ -67,11 +138,13 @@ def tool_trend(stock_code: str) -> Dict[str, Any]:
     Returns:
         Dictionary with trend analysis
     """
-    analysis = trend_service.analyze_trend(stock_code)
+    analysis = get_tool_services().trend.analyze_trend(stock_code)
     if analysis:
-        return {
-            "success": True,
-            "data": {
+        return _result(
+            "trend",
+            "success",
+            finding=analysis.summary,
+            data={
                 "stock_code": analysis.stock_code,
                 "company_name": analysis.company_name,
                 "metrics": [
@@ -85,8 +158,9 @@ def tool_trend(stock_code: str) -> Dict[str, Any]:
                 ],
                 "summary": analysis.summary,
             },
-        }
-    return {"success": False, "error": "Insufficient data for trend analysis"}
+            confidence=0.8,
+        )
+    return _result("trend", "insufficient_data", error="Insufficient data for trend analysis")
 
 
 @tool
@@ -102,11 +176,13 @@ def tool_peer_compare(stock_codes: str, period: str) -> Dict[str, Any]:
         Dictionary with peer comparison data
     """
     codes = [c.strip() for c in stock_codes.split(",")]
-    analysis = peer_service.compare_peers(codes, period)
+    analysis = get_tool_services().peer.compare_peers(codes, period)
     if analysis:
-        return {
-            "success": True,
-            "data": {
+        return _result(
+            "peer",
+            "success",
+            finding=analysis.summary,
+            data={
                 "period": analysis.period,
                 "comparisons": [
                     {
@@ -120,8 +196,9 @@ def tool_peer_compare(stock_codes: str, period: str) -> Dict[str, Any]:
                 ],
                 "summary": analysis.summary,
             },
-        }
-    return {"success": False, "error": "Insufficient data for comparison"}
+            confidence=0.75,
+        )
+    return _result("peer", "insufficient_data", error="Insufficient data for comparison")
 
 
 @tool
@@ -147,7 +224,7 @@ def tool_management_score(
     Returns:
         Dictionary with management score
     """
-    score = management_service.calculate_score(
+    score = get_tool_services().management.calculate_score(
         ceo_tenure_years=ceo_tenure,
         cfo_tenure_years=cfo_tenure,
         board_independence_ratio=board_independence,
@@ -155,9 +232,19 @@ def tool_management_score(
         insider_sells=insider_sells,
         governance_incidents=governance_incidents,
     )
-    return {
-        "success": True,
-        "data": {
+    assumptions = {
+        "ceo_tenure": ceo_tenure,
+        "cfo_tenure": cfo_tenure,
+        "board_independence": board_independence,
+        "insider_buys": insider_buys,
+        "insider_sells": insider_sells,
+        "governance_incidents": governance_incidents,
+    }
+    return _result(
+        "management",
+        "success",
+        finding=score.commentary,
+        data={
             "total_score": score.total,
             "components": {
                 "tenure_stability": score.tenure_stability,
@@ -167,7 +254,10 @@ def tool_management_score(
             },
             "commentary": score.commentary,
         },
-    }
+        assumptions=assumptions,
+        warnings=["Management score is based on supplied assumptions, not filing facts"],
+        confidence=0.5,
+    )
 
 
 @tool
@@ -183,13 +273,15 @@ def tool_earnings_quality_score(stock_code: str, period: str) -> Dict[str, Any]:
         Dictionary with earnings quality score
     """
     try:
-        score = earnings_quality_service.calculate_score(stock_code, period)
+        score = get_tool_services().earnings_quality.calculate_score(stock_code, period)
     except InsufficientDataError as exc:
-        return _insufficient_data_response(exc)
+        return _insufficient_data_response("earnings_quality", exc)
     if score:
-        return {
-            "success": True,
-            "data": {
+        return _result(
+            "earnings_quality",
+            "success",
+            finding=score.commentary,
+            data={
                 "total_score": score.total,
                 "components": {
                     "accrual_quality": score.accrual_quality,
@@ -200,8 +292,10 @@ def tool_earnings_quality_score(stock_code: str, period: str) -> Dict[str, Any]:
                 "red_flags": score.red_flags,
                 "commentary": score.commentary,
             },
-        }
-    return {"success": False, "error": "Data not found"}
+            warnings=score.red_flags,
+            confidence=0.8 if not score.red_flags else 0.7,
+        )
+    return _result("earnings_quality", "not_found", error="Data not found")
 
 
 @tool
@@ -218,21 +312,25 @@ def tool_roic_wacc(stock_code: str, period: str, beta: float = 1.0) -> Dict[str,
         Dictionary with ROIC/WACC analysis
     """
     try:
-        analysis = roic_wacc_service.analyze(stock_code, period, market_beta=beta)
+        analysis = get_tool_services().roic_wacc.analyze(stock_code, period, market_beta=beta)
     except InsufficientDataError as exc:
-        return _insufficient_data_response(exc)
+        return _insufficient_data_response("roic_wacc", exc)
     if analysis:
-        return {
-            "success": True,
-            "data": {
+        return _result(
+            "roic_wacc",
+            "success",
+            finding=analysis.commentary,
+            data={
                 "roic": analysis.roic,
                 "wacc": analysis.wacc,
                 "spread": analysis.value_creation_gap,
                 "creating_value": analysis.is_value_creating,
                 "commentary": analysis.commentary,
             },
-        }
-    return {"success": False, "error": "Data not found"}
+            assumptions=analysis.assumptions,
+            confidence=0.75,
+        )
+    return _result("roic_wacc", "not_found", error="Data not found")
 
 
 @tool
@@ -250,13 +348,15 @@ def tool_factor_exposure(stock_code: str, period: str, peers: str = "") -> Dict[
     """
     peer_list = [p.strip() for p in peers.split(",")] if peers else None
     try:
-        exposures = factor_service.calculate_exposures(stock_code, period, peer_list)
+        exposures = get_tool_services().factor.calculate_exposures(stock_code, period, peer_list)
     except InsufficientDataError as exc:
-        return _insufficient_data_response(exc)
+        return _insufficient_data_response("factor", exc)
     if exposures:
-        return {
-            "success": True,
-            "data": {
+        return _result(
+            "factor",
+            "success",
+            finding=exposures.commentary,
+            data={
                 "quality": exposures.quality,
                 "value": exposures.value,
                 "momentum": exposures.momentum,
@@ -264,8 +364,9 @@ def tool_factor_exposure(stock_code: str, period: str, peers: str = "") -> Dict[
                 "volatility": exposures.volatility,
                 "commentary": exposures.commentary,
             },
-        }
-    return {"success": False, "error": "Insufficient data"}
+            confidence=0.65,
+        )
+    return _result("factor", "insufficient_data", error="Insufficient data")
 
 
 @tool
@@ -289,18 +390,26 @@ def tool_capital_allocation(
     Returns:
         Dictionary with capital allocation analysis
     """
-    analysis = capital_allocation_service.analyze(stock_code, period, dividends, buybacks, capex)
+    analysis = get_tool_services().capital_allocation.analyze(
+        stock_code, period, dividends, buybacks, capex
+    )
     if analysis:
-        return {
-            "success": True,
-            "data": {
+        assumptions = {"dividends": dividends, "buybacks": buybacks, "capex": capex}
+        return _result(
+            "capital_allocation",
+            "success",
+            finding=analysis.commentary,
+            data={
                 "total_shareholder_returns": analysis.total_shareholder_returns,
                 "total_investment": analysis.total_investment,
                 "allocation_mix": analysis.allocation_mix,
                 "commentary": analysis.commentary,
             },
-        }
-    return {"success": False, "error": "Data not found"}
+            assumptions=assumptions,
+            warnings=["Capital allocation inputs are caller-supplied assumptions"],
+            confidence=0.5,
+        )
+    return _result("capital_allocation", "not_found", error="Data not found")
 
 
 @tool
@@ -315,15 +424,11 @@ def tool_sentiment(text: str) -> Dict[str, Any]:
     Returns:
         Dictionary with sentiment analysis
     """
-    # Placeholder implementation
-    return {
-        "success": True,
-        "data": {
-            "sentiment": "neutral",
-            "confidence": 0.5,
-            "note": "NLP sentiment analysis not yet implemented",
-        },
-    }
+    return _result(
+        "sentiment",
+        "not_supported",
+        error="Sentiment analysis is not implemented",
+    )
 
 
 @tool
@@ -339,11 +444,11 @@ def tool_guidance_tracker(stock_code: str, period: str) -> Dict[str, Any]:
     Returns:
         Dictionary with guidance information
     """
-    # Placeholder implementation
-    return {
-        "success": True,
-        "data": {"guidance": "Not available", "note": "Guidance tracking not yet implemented"},
-    }
+    return _result(
+        "guidance",
+        "not_supported",
+        error="Guidance tracking is not implemented",
+    )
 
 
 @tool
@@ -359,13 +464,15 @@ def tool_ews(stock_code: str, period: str) -> Dict[str, Any]:
         Dictionary with early warning analysis
     """
     try:
-        ews = ews_service.detect_warnings(stock_code, period)
+        ews = get_tool_services().ews.detect_warnings(stock_code, period)
     except InsufficientDataError as exc:
-        return _insufficient_data_response(exc)
+        return _insufficient_data_response("ews", exc)
     if ews:
-        return {
-            "success": True,
-            "data": {
+        return _result(
+            "ews",
+            "success",
+            finding=ews.commentary,
+            data={
                 "warning_level": ews.warning_level,
                 "signal_count": ews.signal_count,
                 "signals": [
@@ -379,8 +486,10 @@ def tool_ews(stock_code: str, period: str) -> Dict[str, Any]:
                 "recommendation": ews.recommendation,
                 "commentary": ews.commentary,
             },
-        }
-    return {"success": False, "error": "Data not found"}
+            warnings=[signal.description for signal in ews.triggered_signals],
+            confidence=0.8,
+        )
+    return _result("ews", "not_found", error="Data not found")
 
 
 # Export all tools

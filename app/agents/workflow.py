@@ -1,5 +1,6 @@
 """LangGraph agent workflow for financial analysis."""
 
+import json
 import logging
 from typing import Any, TypedDict, Annotated, Sequence
 
@@ -9,6 +10,8 @@ from langchain_openai import ChatOpenAI
 from langchain_core.output_parsers import PydanticOutputParser
 from langchain_core.prompts import PromptTemplate
 from app.core import DataLoader, get_settings
+from app.agents.contracts import ResearchFinding, ResearchReport, ToolResult
+from app.data.readiness import DataReadinessService
 from app.models.agent_models import AgentQuery, AgentResponse, IntentClassification
 
 
@@ -26,6 +29,14 @@ class AgentState(TypedDict):
     entities: dict
     analysis_data: dict
     final_answer: str
+    mode: str
+    context: dict
+    data_readiness: dict
+    research_plan: list[str]
+    tool_results: dict[str, dict]
+    evidence: list[dict]
+    contradictions: list[str]
+    report: dict
 
 
 class FinancialAgent:
@@ -40,6 +51,9 @@ class FinancialAgent:
         )
         self.parser = PydanticOutputParser(pydantic_object=IntentClassification)
         self.data_loader = DataLoader()
+        from app.agents.tools import configure_tool_services
+
+        configure_tool_services(self.data_loader)
         self.langfuse_client = None
         self.langfuse_handler = self._build_langfuse_handler()
         self.graph = self._build_graph()
@@ -109,55 +123,17 @@ class FinancialAgent:
         """Build the LangGraph workflow."""
         workflow = StateGraph(AgentState)
 
-        # Add nodes
         workflow.add_node("intent_router", self._intent_router_node)
-        workflow.add_node("snapshot", self._snapshot_node)
-        workflow.add_node("trend", self._trend_node)
-        workflow.add_node("peer", self._peer_node)
-        workflow.add_node("management", self._management_node)
-        workflow.add_node("earnings_quality", self._earnings_quality_node)
-        workflow.add_node("roic_wacc", self._roic_wacc_node)
-        workflow.add_node("factor", self._factor_node)
-        workflow.add_node("capital_allocation", self._capital_allocation_node)
-        workflow.add_node("ews", self._ews_node)
+        workflow.add_node("data_readiness", self._data_readiness_node)
+        workflow.add_node("research_planner", self._research_planner_node)
+        workflow.add_node("research_executor", self._research_executor_node)
         workflow.add_node("answer_composer", self._answer_composer_node)
 
-        # Set entry point
         workflow.set_entry_point("intent_router")
-
-        # Add conditional edges from intent router
-        workflow.add_conditional_edges(
-            "intent_router",
-            self._route_by_intent,
-            {
-                "snapshot": "snapshot",
-                "trend": "trend",
-                "peer": "peer",
-                "management": "management",
-                "earnings_quality": "earnings_quality",
-                "roic_wacc": "roic_wacc",
-                "factor": "factor",
-                "capital_allocation": "capital_allocation",
-                "ews": "ews",
-                "default": "snapshot",
-            },
-        )
-
-        # All analysis nodes lead to answer composer
-        for node in [
-            "snapshot",
-            "trend",
-            "peer",
-            "management",
-            "earnings_quality",
-            "roic_wacc",
-            "factor",
-            "capital_allocation",
-            "ews",
-        ]:
-            workflow.add_edge(node, "answer_composer")
-
-        # Answer composer ends the workflow
+        workflow.add_edge("intent_router", "data_readiness")
+        workflow.add_edge("data_readiness", "research_planner")
+        workflow.add_edge("research_planner", "research_executor")
+        workflow.add_edge("research_executor", "answer_composer")
         workflow.add_edge("answer_composer", END)
 
         return workflow.compile()
@@ -183,31 +159,51 @@ class FinancialAgent:
         import re
 
         query_lower = query.lower()
-        if any(word in query_lower for word in ["roic", "wacc", "value creation"]):
+        if any(word in query_lower for word in ["roic", "wacc", "value creation", "資本報酬"]):
             intent = "roic_wacc"
-        elif any(word in query_lower for word in ["trend", "growth", "over time"]):
+        elif any(word in query_lower for word in ["trend", "growth", "over time", "趨勢", "成長"]):
             intent = "trend"
-        elif any(word in query_lower for word in ["peer", "compare", "comparison"]):
+        elif any(word in query_lower for word in ["peer", "compare", "comparison", "同業", "比較"]):
             intent = "peer"
-        elif any(word in query_lower for word in ["management", "governance", "ceo", "cfo"]):
+        elif any(
+            word in query_lower
+            for word in ["management", "governance", "ceo", "cfo", "管理層", "公司治理"]
+        ):
             intent = "management"
-        elif any(word in query_lower for word in ["earnings quality", "accrual"]):
+        elif any(
+            word in query_lower for word in ["earnings quality", "accrual", "盈餘品質", "應計"]
+        ):
             intent = "earnings_quality"
-        elif any(word in query_lower for word in ["factor", "exposure"]):
+        elif any(word in query_lower for word in ["factor", "exposure", "因子", "曝險"]):
             intent = "factor"
         elif any(
-            word in query_lower for word in ["capital allocation", "dividend", "buyback", "capex"]
+            word in query_lower
+            for word in [
+                "capital allocation",
+                "dividend",
+                "buyback",
+                "capex",
+                "資本配置",
+                "股利",
+                "回購",
+                "資本支出",
+            ]
         ):
             intent = "capital_allocation"
-        elif any(word in query_lower for word in ["warning", "risk", "red flag", "ews"]):
+        elif any(
+            word in query_lower
+            for word in ["warning", "risk", "red flag", "ews", "風險", "警訊", "預警"]
+        ):
             intent = "ews"
         else:
             intent = "snapshot"
 
         entities: dict[str, Any] = {}
-        stock_match = re.search(r"\b\d{3,6}\b", query)
-        if stock_match:
-            entities["stock_code"] = stock_match.group(0)
+        stock_matches = re.findall(r"\b\d{3,6}\b", query)
+        if stock_matches:
+            entities["stock_code"] = stock_matches[0]
+        if len(stock_matches) > 1:
+            entities["peer_stocks"] = stock_matches
         period_match = re.search(r"\b20\d{2}Q[1-4]\b", query, re.IGNORECASE)
         if period_match:
             entities["period"] = period_match.group(0).upper()
@@ -216,6 +212,323 @@ class FinancialAgent:
             entities["beta"] = float(beta_match.group(1))
 
         return intent, entities
+
+    def _data_readiness_node(self, state: AgentState) -> AgentState:
+        """Load source status and evidence before any financial tool runs."""
+        if state.get("intent") == "management":
+            state["data_readiness"] = {
+                "status": "not_required",
+                "available": True,
+                "warnings": ["Management analysis uses caller-supplied assumptions"],
+            }
+            state["evidence"] = []
+            return state
+
+        readiness_service = DataReadinessService(self.data_loader.provider)
+        readiness = readiness_service.check(state["stock_code"], state["period"])
+        state["data_readiness"] = readiness.model_dump(mode="json")
+
+        record = (
+            self.data_loader.load_record(state["stock_code"], state["period"])
+            if readiness.available
+            else None
+        )
+        if record:
+            evidence = [item.model_dump(mode="json") for item in record.evidence]
+            if not evidence and record.snapshot:
+                evidence = [
+                    {
+                        "source_type": record.source,
+                        "stock_code": state["stock_code"],
+                        "period": state["period"],
+                    }
+                ]
+            state["evidence"] = evidence
+        else:
+            state["evidence"] = []
+
+        if (
+            readiness.status == "missing"
+            and self.settings.auto_refresh_missing_data
+            and self.settings.data_provider == "financial_reports"
+        ):
+            try:
+                refresh = readiness_service.request_refresh(state["stock_code"], state["period"])
+                state["data_readiness"].update(
+                    {"status": "processing", "job_id": refresh.get("job_id")}
+                )
+            except Exception as exc:
+                state["data_readiness"].setdefault("warnings", []).append(str(exc))
+        return state
+
+    def _research_planner_node(self, state: AgentState) -> AgentState:
+        """Build a deterministic, auditable tool plan."""
+        intent = state.get("intent", "snapshot")
+        mode = state.get("mode", "auto")
+        query = state.get("query", "").lower()
+        broad_terms = [
+            "financial health",
+            "worth",
+            "hold",
+            "invest",
+            "complete analysis",
+            "完整分析",
+            "值得",
+            "持有",
+            "投資",
+            "財務健康",
+        ]
+        broad_question = mode == "research" or any(term in query for term in broad_terms)
+
+        if mode == "quick" or not broad_question:
+            plan = [intent if intent != "default" else "snapshot"]
+        else:
+            plan = ["snapshot", "trend", "earnings_quality", "roic_wacc", "ews"]
+            peer_stocks = state.get("entities", {}).get("peer_stocks") or state.get(
+                "context", {}
+            ).get("peer_stocks")
+            if peer_stocks and len(peer_stocks) >= 2:
+                plan.extend(["peer", "factor"])
+
+        seen: set[str] = set()
+        unique_plan: list[str] = []
+        for item in plan:
+            if item not in seen:
+                seen.add(item)
+                unique_plan.append(item)
+        state["research_plan"] = unique_plan
+        return state
+
+    def _tool_arguments(self, tool_name: str, state: AgentState) -> dict[str, Any]:
+        stock_code = state["stock_code"]
+        period = state["period"]
+        entities = state.get("entities", {})
+        context = state.get("context", {})
+        peers = entities.get("peer_stocks") or context.get("peer_stocks", [])
+
+        if tool_name == "trend":
+            return {"stock_code": stock_code}
+        if tool_name == "peer":
+            codes = peers or [stock_code]
+            return {"stock_codes": ",".join(map(str, codes)), "period": period}
+        if tool_name == "management":
+            return {
+                "ceo_tenure": context.get("ceo_tenure", 0),
+                "cfo_tenure": context.get("cfo_tenure", 0),
+                "board_independence": context.get("board_independence", 0.3),
+                "insider_buys": context.get("insider_buys", 0),
+                "insider_sells": context.get("insider_sells", 0),
+                "governance_incidents": context.get("governance_incidents", 0),
+            }
+        if tool_name == "roic_wacc":
+            return {
+                "stock_code": stock_code,
+                "period": period,
+                "beta": entities.get("beta", context.get("beta", 1.0)),
+            }
+        if tool_name == "factor":
+            return {
+                "stock_code": stock_code,
+                "period": period,
+                "peers": ",".join(map(str, peers)),
+            }
+        if tool_name == "capital_allocation":
+            return {
+                "stock_code": stock_code,
+                "period": period,
+                "dividends": context.get("dividends", 0),
+                "buybacks": context.get("buybacks", 0),
+                "capex": context.get("capex", 0),
+            }
+        if tool_name == "sentiment":
+            return {"text": context.get("text", state.get("query", ""))}
+        return {"stock_code": stock_code, "period": period}
+
+    def _research_executor_node(self, state: AgentState) -> AgentState:
+        """Execute every planned tool and normalize failures."""
+        from app.agents.tools import (
+            tool_capital_allocation,
+            tool_earnings_quality_score,
+            tool_ews,
+            tool_factor_exposure,
+            tool_guidance_tracker,
+            tool_management_score,
+            tool_peer_compare,
+            tool_roic_wacc,
+            tool_snapshot,
+            tool_sentiment,
+            tool_trend,
+        )
+
+        tools = {
+            "snapshot": tool_snapshot,
+            "trend": tool_trend,
+            "peer": tool_peer_compare,
+            "management": tool_management_score,
+            "earnings_quality": tool_earnings_quality_score,
+            "roic_wacc": tool_roic_wacc,
+            "factor": tool_factor_exposure,
+            "capital_allocation": tool_capital_allocation,
+            "sentiment": tool_sentiment,
+            "guidance": tool_guidance_tracker,
+            "ews": tool_ews,
+        }
+        readiness = state.get("data_readiness", {})
+        if not readiness.get("available", False):
+            status = readiness.get("status", "failed")
+            error = f"Financial data is {status}"
+            state["tool_results"] = {
+                "data_readiness": ToolResult(
+                    tool="data_readiness",
+                    status="not_found" if status == "missing" else "failed",
+                    finding=error,
+                    warnings=readiness.get("warnings", []),
+                    error=error,
+                ).model_dump(mode="json")
+            }
+        else:
+            results: dict[str, dict] = {}
+            required_fields = {
+                "earnings_quality": {
+                    "net_income",
+                    "operating_income",
+                    "total_assets",
+                    "net_revenue",
+                    "accounts_receivable",
+                    "inventory",
+                },
+                "roic_wacc": {"operating_income", "equity", "total_liabilities"},
+                "ews": {
+                    "net_revenue",
+                    "accounts_receivable",
+                    "inventory",
+                    "total_assets",
+                    "total_liabilities",
+                },
+            }
+            known_missing = set(readiness.get("missing_fields", []))
+            for tool_name in state.get("research_plan", []):
+                selected = tools.get(tool_name)
+                if selected is None:
+                    continue
+                blocked_fields = sorted(known_missing & required_fields.get(tool_name, set()))
+                if blocked_fields:
+                    results[tool_name] = ToolResult(
+                        tool=tool_name,
+                        status="insufficient_data",
+                        finding="Required fields are unavailable",
+                        missing_fields=blocked_fields,
+                        error="insufficient_data",
+                    ).model_dump(mode="json")
+                    continue
+                try:
+                    result = selected.invoke(self._tool_arguments(tool_name, state))
+                    if not result.get("evidence"):
+                        result["evidence"] = state.get("evidence", [])
+                    results[tool_name] = result
+                except Exception as exc:
+                    results[tool_name] = ToolResult(
+                        tool=tool_name,
+                        status="failed",
+                        finding=str(exc),
+                        error=str(exc),
+                    ).model_dump(mode="json")
+            state["tool_results"] = results
+
+        state["contradictions"] = self._detect_contradictions(state["tool_results"])
+        report = self._build_research_report(state)
+        state["report"] = report.model_dump(mode="json")
+        state["analysis_data"] = {
+            "success": bool(report.findings),
+            "status": "success" if report.findings else "insufficient_data",
+            "data_readiness": state.get("data_readiness", {}),
+            "tools": state["tool_results"],
+            "report": state["report"],
+        }
+        return state
+
+    @staticmethod
+    def _detect_contradictions(results: dict[str, dict]) -> list[str]:
+        contradictions: list[str] = []
+        roic = results.get("roic_wacc", {}).get("data", {})
+        ews = results.get("ews", {}).get("data", {})
+        earnings = results.get("earnings_quality", {}).get("data", {})
+        if roic.get("creating_value") and ews.get("warning_level") in {"high", "critical"}:
+            contradictions.append(
+                "ROIC exceeds WACC, but the early-warning system reports high risk"
+            )
+        if roic.get("creating_value") and earnings.get("total_score", 100) < 50:
+            contradictions.append("Capital returns appear positive while earnings quality is weak")
+        return contradictions
+
+    def _build_research_report(self, state: AgentState) -> ResearchReport:
+        results = state.get("tool_results", {})
+        findings: list[ResearchFinding] = []
+        readiness = state.get("data_readiness", {})
+        risks: list[str] = list(readiness.get("warnings", []))
+        gaps: list[str] = list(readiness.get("missing_fields", []))
+        evidence: list[dict] = []
+        confidence_values: list[float] = []
+
+        for tool_name, result in results.items():
+            if result.get("success"):
+                finding = result.get("finding") or f"{tool_name} analysis completed"
+                findings.append(
+                    ResearchFinding(
+                        tool=tool_name,
+                        finding=finding,
+                        confidence=float(result.get("confidence", 0)),
+                        evidence=result.get("evidence", []),
+                        warnings=result.get("warnings", []),
+                    )
+                )
+                confidence_values.append(float(result.get("confidence", 0)))
+                risks.extend(result.get("warnings", []))
+                evidence.extend(result.get("evidence", []))
+            else:
+                gaps.extend(result.get("missing_fields", []))
+                if result.get("error"):
+                    gaps.append(f"{tool_name}: {result['error']}")
+
+        ews_level = results.get("ews", {}).get("data", {}).get("warning_level")
+        roic_creating = results.get("roic_wacc", {}).get("data", {}).get("creating_value")
+        earnings_score = results.get("earnings_quality", {}).get("data", {}).get("total_score")
+        if ews_level in {"high", "critical"} or earnings_score is not None and earnings_score < 50:
+            verdict = "警戒"
+        elif roic_creating is True and findings:
+            verdict = "偏正向"
+        elif findings:
+            verdict = "中性"
+        else:
+            verdict = "資料不足"
+
+        base_confidence = (
+            sum(confidence_values) / len(confidence_values) if confidence_values else 0.0
+        )
+        quality = state.get("data_readiness", {}).get("quality_score")
+        if quality is not None:
+            base_confidence *= float(quality)
+        if gaps:
+            base_confidence *= 0.8
+
+        unique_evidence = list(
+            {json.dumps(item, sort_keys=True): item for item in evidence}.values()
+        )
+        unique_risks = list(dict.fromkeys(risks))
+        unique_gaps = list(dict.fromkeys(gaps))
+        thesis = "；".join(item.finding for item in findings[:3]) or "目前沒有足夠資料形成投資論點"
+        watch_items = list(dict.fromkeys(unique_risks + state.get("contradictions", [])))[:8]
+        return ResearchReport(
+            verdict=verdict,
+            investment_thesis=thesis,
+            findings=findings,
+            supporting_evidence=unique_evidence,
+            contradictions=state.get("contradictions", []),
+            key_risks=unique_risks,
+            data_gaps=unique_gaps,
+            watch_items=watch_items,
+            confidence=round(max(0.0, min(1.0, base_confidence)), 3),
+        )
 
     def _intent_router_node(self, state: AgentState) -> AgentState:
         """Classify user intent and extract entities using LLM."""
@@ -383,46 +696,42 @@ class FinancialAgent:
         return state
 
     def _answer_composer_node(self, state: AgentState) -> AgentState:
-        """Compose final answer from analysis data."""
-        analysis_data = state.get("analysis_data", {})
-        intent = state.get("intent", "unknown")
-        query = state.get("query", "")
-
-        if not analysis_data.get("success"):
-            error_msg = analysis_data.get("error", "Unknown error")
-            missing = analysis_data.get("missing_fields", [])
-            missing_text = f" Missing fields: {', '.join(missing)}." if missing else ""
-            message = analysis_data.get("message", error_msg)
-            state["final_answer"] = (
-                f"I encountered an issue while performing the {intent} analysis: {message}.{missing_text}"
-            )
+        """Compose an evidence-constrained answer from the research report."""
+        report = state.get("report", {})
+        if not report.get("findings"):
+            gaps = report.get("data_gaps", [])
+            detail = "；".join(gaps) if gaps else "找不到可用的財務資料"
+            state["final_answer"] = f"Data not available / 無法完成分析：{detail}。"
             return state
 
-        # Use LLM to compose natural language answer
-        data = analysis_data.get("data", {})
-
         if not self.settings.openai_api_key:
-            state["final_answer"] = (
-                f"{intent} analysis completed for {state.get('stock_code')} "
-                f"{state.get('period')}. Supporting data is included in the response payload."
-            )
+            answer_parts = [
+                f"結論：{report.get('verdict', '資料不足')}",
+                f"投資論點：{report.get('investment_thesis', '')}",
+            ]
+            if report.get("key_risks"):
+                answer_parts.append("主要風險：" + "；".join(report["key_risks"][:3]))
+            if report.get("contradictions"):
+                answer_parts.append("矛盾訊號：" + "；".join(report["contradictions"][:3]))
+            if report.get("data_gaps"):
+                answer_parts.append("資料缺口：" + "；".join(report["data_gaps"][:3]))
+            state["final_answer"] = "\n\n".join(answer_parts)
             return state
 
         prompt = f"""
-As a professional financial analyst, provide a clear, insightful, and professional answer to the user's question based on the data provided.
+You are a professional financial analyst. Write a concise Traditional Chinese
+answer using only the structured research report below.
 
-User Question: {query}
-Analysis Type: {intent}
+User question: {state.get('query', '')}
 Stock: {state.get('stock_code')}
 Period: {state.get('period')}
-Analysis Results: {data}
+Research report: {json.dumps(report, ensure_ascii=False)}
 
-Guidelines:
-- If the data is missing or incomplete, explain what is missing.
-- Highlight key metrics and their implications.
-- Do not invent facts, market data, prices, forecasts, or recommendations that are not present in Analysis Results.
-- Use a professional tone suitable for fund managers.
-- Keep the answer concise but comprehensive.
+Requirements:
+- State the verdict and investment thesis.
+- Separate evidence, risks, contradictions, and data gaps.
+- Do not add prices, forecasts, recommendations, or facts absent from the report.
+- Explicitly qualify low-confidence or assumption-based findings.
 """
 
         response = self.llm.invoke(
@@ -455,6 +764,14 @@ Guidelines:
             entities={},
             analysis_data={},
             final_answer="",
+            mode=query.mode,
+            context=query.context,
+            data_readiness={},
+            research_plan=[],
+            tool_results={},
+            evidence=[],
+            contradictions=[],
+            report={},
         )
 
         # Run the workflow
@@ -464,14 +781,39 @@ Guidelines:
         )
 
         # Build response
+        report = final_state.get("report", {})
+        score = float(report.get("confidence", 0.0))
+        if score >= 0.75:
+            confidence = "high"
+        elif score >= 0.45:
+            confidence = "medium"
+        else:
+            confidence = "low"
+
         return AgentResponse(
             query=query.query,
             answer=final_state["final_answer"],
-            sources=[f"{final_state['intent']} analysis tool"],
+            sources=list(
+                dict.fromkeys(
+                    evidence.get("source_type", "unknown")
+                    for evidence in report.get("supporting_evidence", [])
+                )
+            ),
             analysis_steps=[
                 f"Detected intent: {final_state['intent']}",
                 f"Extracted entities: {final_state.get('entities')}",
+                f"Data readiness: {final_state.get('data_readiness', {}).get('status')}",
+                f"Research plan: {', '.join(final_state.get('research_plan', []))}",
             ],
             data=final_state.get("analysis_data", {}),
-            confidence="high" if final_state.get("analysis_data", {}).get("success") else "low",
+            confidence=confidence,
+            confidence_score=score,
+            verdict=report.get("verdict"),
+            research_plan=final_state.get("research_plan", []),
+            findings=report.get("findings", []),
+            evidence=report.get("supporting_evidence", []),
+            risks=report.get("key_risks", []),
+            contradictions=report.get("contradictions", []),
+            data_gaps=report.get("data_gaps", []),
+            watch_items=report.get("watch_items", []),
         )

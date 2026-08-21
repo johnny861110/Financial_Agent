@@ -5,6 +5,12 @@ import os
 from pathlib import Path
 
 
+# Unit tests must not inherit external LLM or telemetry settings from .env.
+os.environ["OPENAI_API_KEY"] = ""
+os.environ["LANGFUSE_ENABLED"] = "false"
+os.environ["LANGFUSE_REQUIRED"] = "false"
+
+
 @pytest.fixture
 def test_data_dir(tmp_path):
     """Create temporary test data directory."""
