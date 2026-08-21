@@ -36,6 +36,7 @@ ENV/
 # Environment
 .env
 .env.local
+*.pem
 
 # Testing
 .coverage
@@ -44,14 +45,20 @@ htmlcov/
 *.cover
 
 # Data
-data/
+/data/
 *.json
+!tests/fixtures/*.json
 *.csv
 *.pdf
 
 # Logs
 *.log
 logs/
+
+# Local analysis and backup artifacts
+.understand-anything/
+graphify-out/
+Dockerfile-bk
 
 # OS
 .DS_Store
