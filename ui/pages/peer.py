@@ -3,7 +3,8 @@
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
-from app.services import PeerService
+from app.models import PeerAnalysis
+from ui.api_client import api_request
 
 
 def show():
@@ -51,8 +52,20 @@ def show():
 
         with st.spinner("Comparing companies..."):
             codes = [c.strip() for c in stock_codes.split(",")]
-            service = PeerService()
-            result = service.compare_peers(codes, period, selected_metrics)
+            try:
+                result = PeerAnalysis.model_validate(
+                    api_request(
+                        "POST",
+                        "/api/peers/compare",
+                        json={
+                            "stock_codes": codes,
+                            "period": period,
+                            "metrics": selected_metrics,
+                        },
+                    )
+                )
+            except Exception:
+                result = None
 
             if result:
                 display_peer_results(result)

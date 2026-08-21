@@ -3,14 +3,22 @@
 import streamlit as st
 import json
 from datetime import datetime
-from app.agents.workflow import FinancialAgent
+import httpx
+
 from app.core.config import get_settings
+from app.models.agent_models import AgentQuery, AgentResponse
 
 
-@st.cache_resource
-def get_agent():
-    """Get or create agent instance."""
-    return FinancialAgent()
+def query_agent_api(query: AgentQuery) -> AgentResponse:
+    """Submit research through the shared FastAPI application."""
+    settings = get_settings()
+    response = httpx.post(
+        f"{settings.api_base_url.rstrip('/')}/api/agent/research",
+        json=query.model_dump(mode="json"),
+        timeout=120,
+    )
+    response.raise_for_status()
+    return AgentResponse.model_validate(response.json())
 
 
 def show():
@@ -27,11 +35,11 @@ def show():
     if "messages" not in st.session_state:
         st.session_state.messages = []
 
-    if "agent" not in st.session_state:
+    if "agent_ready" not in st.session_state:
         try:
             settings = get_settings()
-            st.session_state.agent = get_agent()
-            st.session_state.agent_ready = True
+            response = httpx.get(f"{settings.api_base_url.rstrip('/')}/health/live", timeout=3)
+            st.session_state.agent_ready = response.status_code == 200
         except Exception as e:
             st.session_state.agent_ready = False
             st.session_state.agent_error = str(e)
@@ -148,9 +156,6 @@ def show():
         with st.chat_message("assistant"):
             with st.spinner("🤔 Analyzing..."):
                 try:
-                    # Prepare query object
-                    from app.models.agent_models import AgentQuery
-
                     agent_query = AgentQuery(
                         query=query_input,
                         stock_code=company_ticker,
@@ -158,8 +163,7 @@ def show():
                         context={"company_name": company_name},
                     )
 
-                    # Call agent
-                    response = st.session_state.agent.query(agent_query)
+                    response = query_agent_api(agent_query)
 
                     # Display response
                     st.markdown(
@@ -167,6 +171,26 @@ def show():
                         if hasattr(response, "answer")
                         else response.get("answer", "No response generated.")
                     )
+
+                    if response.verdict:
+                        verdict_col, confidence_col = st.columns(2)
+                        verdict_col.metric("Verdict", response.verdict)
+                        confidence_col.metric(
+                            "Confidence", f"{response.confidence_score * 100:.0f}%"
+                        )
+
+                    if response.risks or response.contradictions or response.data_gaps:
+                        with st.expander("Research Risks and Data Gaps", expanded=True):
+                            for risk in response.risks:
+                                st.warning(risk)
+                            for contradiction in response.contradictions:
+                                st.warning(f"Contradiction: {contradiction}")
+                            for gap in response.data_gaps:
+                                st.info(f"Data gap: {gap}")
+
+                    if response.evidence:
+                        with st.expander("Evidence"):
+                            st.json(response.evidence)
 
                     # Display analysis steps if available
                     analysis_steps = (

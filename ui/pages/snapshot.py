@@ -3,7 +3,7 @@
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
-from app.services import SnapshotService
+from ui.api_client import api_request
 
 
 def show():
@@ -27,8 +27,10 @@ def show():
 
     if st.button("🔍 Analyze", type="primary"):
         with st.spinner("Loading financial data..."):
-            service = SnapshotService()
-            result = service.get_summary(stock_code, period)
+            try:
+                result = api_request("GET", f"/api/financials/{stock_code}/{period}")
+            except Exception:
+                result = None
 
             if result:
                 display_snapshot_results(result)

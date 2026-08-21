@@ -2,7 +2,8 @@
 
 import streamlit as st
 import plotly.graph_objects as go
-from app.services import ManagementService
+from app.models import ManagementScore
+from ui.api_client import api_request
 
 
 def show():
@@ -61,19 +62,31 @@ def show():
 
     if submitted:
         with st.spinner("Calculating management quality score..."):
-            service = ManagementService()
-            score = service.calculate_score(
-                ceo_tenure_years=ceo_tenure,
-                cfo_tenure_years=cfo_tenure,
-                board_independence_ratio=board_independence,
-                independent_directors=independent_directors,
-                total_directors=total_directors,
-                family_controlled=family_controlled,
-                insider_buys=insider_buys,
-                insider_sells=insider_sells,
-                governance_incidents=governance_incidents,
-                audit_issues=audit_issues,
-                related_party_transactions=related_party,
+            result = api_request(
+                "POST",
+                "/api/scores/management",
+                json={
+                    "ceo_tenure_years": ceo_tenure,
+                    "cfo_tenure_years": cfo_tenure,
+                    "board_independence_ratio": board_independence,
+                    "independent_directors": independent_directors,
+                    "total_directors": total_directors,
+                    "family_controlled": family_controlled,
+                    "insider_buys": insider_buys,
+                    "insider_sells": insider_sells,
+                    "governance_incidents": governance_incidents,
+                    "audit_issues": audit_issues,
+                    "related_party_transactions": related_party,
+                },
+            )
+            components = result["components"]
+            score = ManagementScore(
+                tenure_stability=components["tenure_stability"],
+                board_independence=components["board_independence"],
+                insider_alignment=components["insider_alignment"],
+                governance_red_flags=components["governance_red_flags"],
+                commentary=result.get("commentary", ""),
+                details=result.get("details", {}),
             )
 
             display_management_score(score)

@@ -8,6 +8,7 @@ Provides a user-friendly interface for financial analysis.
 import streamlit as st
 import sys
 from pathlib import Path
+from app.core.config import get_settings
 
 # Add app directory to path
 sys.path.insert(0, str(Path(__file__).parent))
@@ -101,7 +102,8 @@ def main():
     try:
         import requests
 
-        response = requests.get("http://localhost:8000/health", timeout=2)
+        api_base_url = get_settings().api_base_url.rstrip("/")
+        response = requests.get(f"{api_base_url}/health/live", timeout=2)
         if response.status_code == 200:
             st.sidebar.success("✅ API Connected")
         else:

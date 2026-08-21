@@ -3,7 +3,8 @@
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
-from app.services import TrendService
+from app.models import TrendAnalysis
+from ui.api_client import api_request
 
 
 def show():
@@ -17,8 +18,12 @@ def show():
 
     if st.button("📊 Analyze Trends", type="primary"):
         with st.spinner("Analyzing trends..."):
-            service = TrendService()
-            result = service.analyze_trend(stock_code)
+            try:
+                result = TrendAnalysis.model_validate(
+                    api_request("GET", f"/api/trend/{stock_code}")
+                )
+            except Exception:
+                result = None
 
             if result:
                 display_trend_results(result)
