@@ -2,11 +2,11 @@
 
 **Version:** 2.0  
 **Audience:** Professional fund managers, investment analysts, and research teams  
-**Stack:** Python, FastAPI, Streamlit, LangGraph/LangChain, OpenAI-compatible LLMs, Langfuse, local JSON financial data
+**Stack:** Python, FastAPI, Streamlit, LangGraph/LangChain, OpenAI-compatible LLMs, Langfuse, HTTP/JSON financial data providers
 
 ## Overview
 
-Financial Report Agent is a financial analysis application for structured company financial reports. It combines deterministic Python services for calculations with a LangGraph agent for natural-language routing and answer composition.
+Financial Report Agent is an evidence-backed research application for structured company financial reports. It combines deterministic Python services with a LangGraph workflow for readiness checks, research planning, tool execution, contradiction review, and answer composition.
 
 The current default UI examples use **世芯-KY (`3661`) / `2025Q1`**.
 
@@ -14,8 +14,22 @@ The project exposes:
 
 - A **Streamlit UI** for dashboards and agent chat.
 - A **FastAPI backend** for programmatic financial analysis.
-- A **LangGraph agent** that classifies user intent and calls the relevant service.
-- A local JSON data loader for `data/financial_reports/*_enhanced.json`.
+- A **LangGraph research agent** with `quick`, `auto`, and `research` modes.
+- A provider layer supporting local JSON and the FinancialReports HTTP API v1.
+- Structured evidence, assumptions, confidence, risks, contradictions, and data gaps.
+
+Detailed documentation:
+
+| Document | Purpose |
+| --- | --- |
+| [ARCHITECTURE.md](ARCHITECTURE.md) | System, data-layer, and Agent architecture diagrams and boundaries |
+| [QUICKSTART.md](QUICKSTART.md) | Local setup, first research query, and common failures |
+| [DOCKER.md](DOCKER.md) | Compose deployment and provider networking |
+| [STRUCTURE.md](STRUCTURE.md) | Repository map, layering rules, and development workflow |
+| [SPEC.md](SPEC.md) | Implemented technical requirements and explicit roadmap |
+| [SAMPLE_DATA.md](SAMPLE_DATA.md) | JSON conventions, evidence, and missing-data behavior |
+| [MODIFICATION_PLAN.md](MODIFICATION_PLAN.md) | Completed FinancialReports integration plan |
+| [PROJECT_REPORT.md](PROJECT_REPORT.md) | Current capability, constraints, and priorities |
 
 ## What It Can Do
 
@@ -36,10 +50,14 @@ The project exposes:
 
 ### Agent Capabilities
 
-- Routes natural-language questions to the right analytical tool.
+- Routes narrow natural-language questions to the relevant analytical tool.
+- Plans and executes a fixed multi-tool review for broad research questions.
+- Checks source readiness and required fields before calculation.
+- Preserves evidence and assumptions across tool and report boundaries.
+- Detects selected contradictions between successful tool findings.
 - Uses an LLM when `OPENAI_API_KEY` is configured.
-- Falls back to deterministic keyword routing when no API key is available.
-- Reports missing required fields instead of returning opaque server errors.
+- Uses deterministic routing and report composition when no API key is available.
+- Reports unsupported tools and missing data explicitly.
 
 ### Placeholder / Roadmap Features
 
@@ -54,44 +72,20 @@ The following concepts exist in docs or tool stubs but are not complete producti
 
 ## Architecture
 
-```text
-Financial_Agent/
-├── app/
-│   ├── main.py                  # FastAPI application entry
-│   ├── api/
-│   │   ├── financials.py        # Financial analysis endpoints
-│   │   └── agent.py             # Agent query endpoint
-│   ├── agents/
-│   │   ├── workflow.py          # LangGraph FinancialAgent workflow
-│   │   └── tools.py             # LangChain tools wrapping services
-│   ├── core/
-│   │   ├── config.py            # Settings and env vars
-│   │   ├── data_loader.py       # JSON data loading
-│   │   └── utils.py             # Math helpers and data validation helpers
-│   ├── models/                  # Pydantic models
-│   └── services/                # Deterministic financial calculation services
-├── ui/
-│   └── pages/                   # Streamlit pages
-├── data/financial_reports/      # Local financial JSON files
-├── tests/                       # Test suite
-├── streamlit_app.py             # Streamlit entry point
-├── convert_financial_report.py  # JSON format conversion utility
-├── Dockerfile
-├── docker-compose.yaml
-└── pyproject.toml
-```
+The implemented system has three documented views:
 
-High-level flow:
+1. **System layer:** Streamlit and API clients enter through FastAPI; financial
+   routes call deterministic services while Agent routes call LangGraph.
+2. **Data layer:** services use the `DataLoader` facade over either local JSON
+   or FinancialReports, with typed retry, cache, fallback, quality, freshness,
+   and evidence behavior.
+3. **Agent layer:** intent routing flows through data readiness, research
+   planning, typed tool execution, evidence/contradiction review, and report
+   composition.
 
-```text
-User
-  -> Streamlit UI or FastAPI
-  -> API route / Agent route
-  -> deterministic service or LangGraph workflow
-  -> DataLoader
-  -> local JSON financial reports
-  -> structured result / agent answer
-```
+See [ARCHITECTURE.md](ARCHITECTURE.md) for all three Mermaid diagrams,
+responsibility tables, failure boundaries, and execution modes. See
+[STRUCTURE.md](STRUCTURE.md) for the current source tree.
 
 ## Data
 
@@ -206,10 +200,19 @@ LANGFUSE_REQUIRED=false
 # Data Configuration
 DATA_DIR=./data
 FINANCIAL_DATA_PATH=./data/financial_reports
+DATA_PROVIDER=json
+FINANCIAL_REPORTS_BASE_URL=http://financial-reports:8010
+FINANCIAL_REPORTS_TIMEOUT=10
+FINANCIAL_REPORTS_MAX_RETRIES=2
+DATA_CACHE_TTL_SECONDS=300
+ALLOW_JSON_FALLBACK=true
+MIN_DATA_QUALITY_SCORE=0.6
+AUTO_REFRESH_MISSING_DATA=false
 
 # API Configuration
 API_HOST=0.0.0.0
 API_PORT=8000
+API_BASE_URL=http://localhost:8000
 API_RELOAD=true
 API_CORS_ORIGINS=http://localhost:8501,http://127.0.0.1:8501
 
@@ -221,40 +224,46 @@ Langfuse is optional. If `LANGFUSE_ENABLED=true`, provide a valid public key, se
 
 ## Running Locally
 
-### Streamlit UI
-
-```bash
-streamlit run streamlit_app.py
-```
-
-Open:
-
-```text
-http://localhost:8501
-```
-
-### FastAPI
+Start FastAPI first:
 
 ```bash
 uv run uvicorn app.main:app --reload
 ```
 
+Then start Streamlit in another terminal:
+
+```bash
+API_BASE_URL=http://localhost:8000 uv run streamlit run streamlit_app.py
+```
+
 Open:
 
-```text
-http://localhost:8000
-```
-
-API docs:
-
-```text
-http://localhost:8000/docs
-http://localhost:8000/redoc
-```
+- Streamlit: `http://localhost:8501`
+- FastAPI: `http://localhost:8000`
+- Swagger: `http://localhost:8000/docs`
+- ReDoc: `http://localhost:8000/redoc`
 
 ## Docker
 
-Build and start both API and UI:
+### Prerequisites
+
+Create `.env` before starting (see [Configuration](#configuration)):
+
+```bash
+cp .env.example .env
+```
+
+Create the logs directory (bind-mounted into the API container):
+
+```bash
+mkdir -p logs
+docker network inspect langfuse_default >/dev/null 2>&1 || \
+  docker network create langfuse_default
+```
+
+### Build and Start
+
+The image is built once and shared by both services:
 
 ```bash
 docker compose up -d --build
@@ -265,6 +274,10 @@ Services:
 - API: `http://localhost:8000`
 - API docs: `http://localhost:8000/docs`
 - Streamlit UI: `http://localhost:8501`
+
+The UI service waits for the API healthcheck to pass before starting.
+
+### Common Commands
 
 Check status:
 
@@ -278,6 +291,32 @@ View logs:
 docker compose logs -f api
 docker compose logs -f ui
 ```
+
+Stop services:
+
+```bash
+docker compose down
+```
+
+Rebuild after dependency changes (`pyproject.toml` / `uv.lock`):
+
+```bash
+docker compose up -d --build
+```
+
+### Image Structure
+
+The Dockerfile uses a two-stage build:
+
+| Stage | Purpose |
+| --- | --- |
+| `builder` | Installs `uv`, compiles dependencies into `/app/.venv` |
+| Runtime (`python:3.10-slim`) | Copies only the venv and application code, runs as non-root `appuser` |
+
+`curl` is installed in the runtime image to support the built-in healthchecks for both services.
+
+See [DOCKER.md](DOCKER.md) for remote-provider networking, operations, and
+production gaps.
 
 ## API Endpoints
 
@@ -382,6 +421,48 @@ curl -X POST http://localhost:8000/api/agent/query \
   }'
 ```
 
+### Evidence-Backed Research
+
+Use the research endpoint for a multi-step review. It checks data readiness,
+builds a deterministic tool plan, runs the required analyses, detects
+contradictions, and returns evidence and a numeric confidence score.
+
+```bash
+curl -X POST http://localhost:8000/api/agent/research \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "請完整分析 3661 是否值得持有",
+    "stock_code": "3661",
+    "period": "2025Q1",
+    "mode": "research"
+  }'
+```
+
+The original `/api/agent/query` endpoint remains available and accepts
+`mode: auto`, `quick`, or `research`.
+
+### FinancialReports Data Provider
+
+JSON remains the default source. To consume the FinancialReports v1 API:
+
+```bash
+DATA_PROVIDER=financial_reports
+FINANCIAL_REPORTS_BASE_URL=http://financial-reports:8010
+ALLOW_JSON_FALLBACK=true
+DATA_CACHE_TTL_SECONDS=300
+MIN_DATA_QUALITY_SCORE=0.6
+```
+
+Remote `404` and `422` responses are not replaced with local data. Transport
+and server failures may use local JSON fallback; a previously cached remote
+record is returned as stale when available.
+
+```bash
+curl http://localhost:8000/api/data/3661/2025Q1/status
+curl -X POST http://localhost:8000/api/data/3661/2025Q1/refresh
+curl http://localhost:8000/api/data/jobs/JOB_ID
+```
+
 ## Streamlit UI Defaults
 
 The UI defaults are set to the current sample company:
@@ -402,19 +483,19 @@ uv run pytest
 Run type checks:
 
 ```bash
-uv run mypy app/
+uv run mypy app/data app/agents app/api app/services app/models/agent_models.py ui/api_client.py
 ```
 
 Compile-check Python files:
 
 ```bash
-python3 -m compileall app ui tests
+uv run python -m compileall -q app ui
 ```
 
 Format code:
 
 ```bash
-uv run black app tests ui streamlit_app.py
+uv run black --check app tests ui streamlit_app.py
 ```
 
 ## Implementation Status
@@ -431,9 +512,10 @@ uv run black app tests ui streamlit_app.py
 | Factor exposure | Implemented with proxy assumptions | Needs enough complete peer records for z-scores. |
 | Early warning system | Implemented | Rule-based red flag detection. |
 | Capital allocation | Partial | Debt change is still a placeholder. |
-| LangGraph agent | Implemented | LLM routing plus deterministic fallback. |
+| FinancialReports provider | Implemented | Versioned HTTP client, retry, cache, stale mode, and JSON fallback. |
+| LangGraph agent | Implemented | Data readiness, deterministic planning, multi-tool research, contradiction checks, and LLM fallback. |
 | Langfuse tracing | Optional | Controlled by env vars. |
-| Sentiment / guidance tools | Placeholder | Stubs only. |
+| Sentiment / guidance tools | Not supported | Explicitly return `not_supported`; no fabricated neutral result. |
 | PostgreSQL / Redis / pgvector | Roadmap | Not part of current runtime. |
 | PDF investment memo | Roadmap | Not implemented. |
 
@@ -475,11 +557,13 @@ Where:
 ## Development Notes
 
 - Prefer adding new financial logic under `app/services/`.
-- Add or update Pydantic models in `app/models/`.
+- Add source contracts/providers under `app/data/`; keep `DataLoader` compatible.
+- Add or update Pydantic models in `app/models/` or `app/data/models.py`.
 - Expose service functionality through `app/api/financials.py`.
-- Add agent-accessible wrappers in `app/agents/tools.py`.
-- Add route logic in `app/agents/workflow.py` when a new agent intent is needed.
-- Add tests for service behavior and API response semantics.
+- Make Agent wrappers return `ToolResult` from `app/agents/tools.py`.
+- Update planning, evidence, and report behavior in `app/agents/workflow.py`.
+- Keep Streamlit behind `ui/api_client.py` rather than importing services.
+- Add provider failure, service, tool-contract, workflow, and API tests as relevant.
 
 ## License
 

@@ -1,277 +1,149 @@
-# Docker 部署指南
+# Docker Deployment
 
-本文件說明如何使用 Docker 和 Docker Compose 部署 Financial Agent 服務。
+The Compose stack builds one application image and runs it as two services:
+FastAPI (`api`) and Streamlit (`ui`). The UI waits for the API healthcheck and
+calls it through `API_BASE_URL=http://api:8000`.
 
-## 前置需求
+## Requirements
 
-- Docker Engine 20.10 或更高版本
-- Docker Compose 2.0 或更高版本
+- Docker Engine 20.10+
+- Docker Compose v2 (`docker compose`)
+- A `.env` file
+- Local `data` and `logs` directories
+- The external `langfuse_default` Docker network used by the current Compose
+  configuration
 
-## 快速開始
-
-### 1. 環境設定
-
-複製環境變數範本並填入您的設定：
+Create prerequisites:
 
 ```bash
 cp .env.example .env
+mkdir -p logs
+docker network inspect langfuse_default >/dev/null 2>&1 || \
+  docker network create langfuse_default
 ```
 
-編輯 `.env` 檔案，至少需要設定：
+`OPENAI_API_KEY` and Langfuse credentials are optional. Leave
+`LANGFUSE_ENABLED=false` when tracing is not configured.
+
+## Start and Verify
+
+```bash
+docker compose up -d --build
+docker compose ps
+docker compose logs -f api ui
+```
+
+Endpoints:
+
+- Streamlit: `http://localhost:8501`
+- FastAPI: `http://localhost:8000`
+- Swagger: `http://localhost:8000/docs`
+- Liveness: `http://localhost:8000/health/live`
+- Provider readiness: `http://localhost:8000/health/ready`
+
+The API mounts `./data` read-only and `./logs` read-write. The UI mounts data
+for compatibility, but normal UI requests go through FastAPI.
+
+## Data Provider Configuration
+
+Default local mode:
+
 ```env
-OPENAI_API_KEY=your_actual_openai_api_key
+DATA_PROVIDER=json
+FINANCIAL_DATA_PATH=/app/data/financial_reports
 ```
 
-### 2. 建置與啟動服務
+Remote mode:
 
-使用 Docker Compose 建置並啟動所有服務：
+```env
+DATA_PROVIDER=financial_reports
+FINANCIAL_REPORTS_BASE_URL=http://financial-reports:8010
+FINANCIAL_REPORTS_TIMEOUT=10
+FINANCIAL_REPORTS_MAX_RETRIES=2
+DATA_CACHE_TTL_SECONDS=300
+ALLOW_JSON_FALLBACK=true
+MIN_DATA_QUALITY_SCORE=0.6
+AUTO_REFRESH_MISSING_DATA=false
+```
+
+`financial-reports` must resolve from both application containers. Add that
+service to a shared Docker network or replace the URL with a reachable host.
+The current Compose file does not start FinancialReports itself.
+
+## Image Layout
+
+The Dockerfile uses two stages:
+
+| Stage | Purpose |
+| --- | --- |
+| `builder` | Install `uv` and create `/app/.venv` from the lockfile |
+| Runtime | Copy the virtual environment and application, then run as `appuser` |
+
+The same image runs `uvicorn` for the API and `streamlit` for the UI. Runtime
+`curl` supports container healthchecks.
+
+## Operations
 
 ```bash
-# 建置映像檔
-docker-compose build
+# Stop without deleting data
+docker compose down
 
-# 啟動服務（背景執行）
-docker-compose up -d
+# Restart
+docker compose restart
 
-# 查看服務狀態
-docker-compose ps
+# Rebuild after dependency or source changes
+docker compose up -d --build
 
-# 查看日誌
-docker-compose logs -f
+# Run tests in the API image
+docker compose run --rm api pytest
+
+# Inspect effective configuration
+docker compose config
 ```
 
-### 3. 存取服務
+Do not use `docker compose down --volumes` unless removal of attached volumes
+is intentional.
 
-服務啟動後，可透過以下網址存取：
+## Troubleshooting
 
-- **Streamlit UI**: http://localhost:8501
-- **FastAPI API**: http://localhost:8000
-- **API 文件**: http://localhost:8000/docs
-- **健康檢查**: http://localhost:8000/health
+### Compose reports `langfuse_default` missing
 
-## 服務架構
+Create the external network as shown in Requirements. This network is needed
+by the current Compose topology even when tracing is disabled.
 
-Docker Compose 部署包含兩個服務：
-
-### API 服務 (`api`)
-- **Port**: 8000
-- **功能**: FastAPI RESTful API
-- **健康檢查**: `/health` endpoint
-- **容器名稱**: `financial-agent-api`
-
-### UI 服務 (`ui`)
-- **Port**: 8501
-- **功能**: Streamlit Web 介面
-- **健康檢查**: Streamlit 內建健康檢查
-- **容器名稱**: `financial-agent-ui`
-- **依賴**: 等待 API 服務健康後才啟動
-
-## Docker 指令參考
-
-### 基本操作
+### API is healthy but not ready
 
 ```bash
-# 啟動服務
-docker-compose up -d
-
-# 停止服務
-docker-compose down
-
-# 重新啟動服務
-docker-compose restart
-
-# 停止並移除容器、網路、映像
-docker-compose down --rmi all --volumes
+curl -i http://localhost:8000/health/ready
+docker compose logs api
 ```
 
-### 查看狀態
+For `DATA_PROVIDER=financial_reports`, verify DNS, port 8010, and the v1
+contract. For local mode, verify files under `data/financial_reports`.
+
+### UI cannot reach API
+
+Confirm the UI environment contains `API_BASE_URL=http://api:8000` and that
+the API container is healthy:
 
 ```bash
-# 查看運行中的容器
-docker-compose ps
-
-# 查看即時日誌
-docker-compose logs -f
-
-# 查看特定服務日誌
-docker-compose logs -f api
-docker-compose logs -f ui
+docker compose exec ui env | grep API_BASE_URL
+docker compose ps api
 ```
 
-### 重新建置
+### Refresh returns HTTP 503
 
-```bash
-# 重新建置所有服務
-docker-compose build
+The JSON provider is read-only and cannot enqueue ingestion. Configure the
+FinancialReports provider for refresh/job operations.
 
-# 重新建置特定服務
-docker-compose build api
+### Port collision
 
-# 不使用快取重新建置
-docker-compose build --no-cache
-```
+Change only the host side of a port mapping, for example `8080:8000`; internal
+service URLs continue to use port 8000.
 
-### 執行指令
+## Production Gaps
 
-```bash
-# 在 API 容器中執行指令
-docker-compose exec api bash
-
-# 在 UI 容器中執行指令
-docker-compose exec ui bash
-
-# 執行 Python 指令
-docker-compose exec api python -c "print('Hello')"
-```
-
-## 開發模式
-
-如需在開發時即時反映程式碼變更，可修改 `docker-compose.yaml`：
-
-```yaml
-services:
-  api:
-    volumes:
-      - ./app:/app/app  # 掛載程式碼目錄
-      - ./data:/app/data:ro
-    environment:
-      - API_RELOAD=true  # 啟用自動重載
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
-```
-
-## 生產環境建議
-
-### 1. 環境變數管理
-
-生產環境不應使用 `.env` 檔案，建議使用：
-- Docker Secrets
-- Kubernetes Secrets
-- AWS Parameter Store
-- Azure Key Vault
-
-### 2. 映像優化
-
-```bash
-# 建置生產映像
-docker build -t financial-agent:latest .
-
-# 推送至 Registry
-docker tag financial-agent:latest your-registry/financial-agent:latest
-docker push your-registry/financial-agent:latest
-```
-
-### 3. 資源限制
-
-在 `docker-compose.yaml` 中加入資源限制：
-
-```yaml
-services:
-  api:
-    deploy:
-      resources:
-        limits:
-          cpus: '2'
-          memory: 2G
-        reservations:
-          cpus: '1'
-          memory: 1G
-```
-
-### 4. 日誌管理
-
-設定日誌驅動：
-
-```yaml
-services:
-  api:
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
-```
-
-### 5. 健康檢查
-
-兩個服務都已設定健康檢查，確保服務正常運行。
-
-## 疑難排解
-
-### 服務無法啟動
-
-```bash
-# 查看詳細錯誤訊息
-docker-compose logs api
-docker-compose logs ui
-
-# 檢查容器狀態
-docker-compose ps
-```
-
-### Port 被佔用
-
-修改 `docker-compose.yaml` 中的 port mapping：
-
-```yaml
-ports:
-  - "8080:8000"  # 使用 8080 代替 8000
-```
-
-### 資料持久化
-
-如需保存日誌：
-
-```yaml
-volumes:
-  - ./logs:/app/logs  # 掛載到本地目錄
-```
-
-### 網路問題
-
-```bash
-# 檢查 Docker 網路
-docker network ls
-docker network inspect financial-agent-network
-
-# 重建網路
-docker-compose down
-docker-compose up -d
-```
-
-## 監控與維護
-
-### 查看資源使用
-
-```bash
-# 查看容器資源使用情況
-docker stats
-
-# 查看特定容器
-docker stats financial-agent-api financial-agent-ui
-```
-
-### 備份資料
-
-```bash
-# 備份資料目錄
-tar -czf data-backup-$(date +%Y%m%d).tar.gz ./data
-
-# 備份日誌
-tar -czf logs-backup-$(date +%Y%m%d).tar.gz ./logs
-```
-
-## 安全性建議
-
-1. **不要在映像中包含 `.env` 檔案**
-2. **使用非 root 使用者執行容器**（已在 Dockerfile 中實作）
-3. **定期更新基礎映像和依賴套件**
-4. **限制容器權限**
-5. **使用 HTTPS 在生產環境**
-6. **設定防火牆規則**
-
-## 更多資訊
-
-- Docker 官方文件: https://docs.docker.com/
-- Docker Compose 文件: https://docs.docker.com/compose/
-- FastAPI 部署: https://fastapi.tiangolo.com/deployment/
-- Streamlit 部署: https://docs.streamlit.io/deploy
+The provided Compose file is a development deployment. Before production, add
+TLS/reverse proxy, authentication, secret management, resource limits,
+centralized logs, metrics, shared cache, durable jobs, backup policy, and a
+non-root compatible writable log strategy.
