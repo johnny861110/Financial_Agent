@@ -130,30 +130,126 @@ is the supported default.
 
 ```mermaid
 flowchart TD
-    Request[AgentQuery]
-    Intent[Intent router]
-    Readiness[Data readiness]
-    Planner[Research planner]
-    Gate{Required data available?}
-    Executor[Research executor]
-    Tools[Typed financial tools]
-    Services[Deterministic services]
-    Results[ToolResult collection]
-    Review[Evidence and contradiction review]
-    Report[ResearchReport]
-    Compose{LLM configured?}
-    LLM[Constrained LLM composition]
-    Deterministic[Deterministic Chinese composition]
-    Response[AgentResponse]
+    UI[Streamlit Agent page]
+    Client[API client]
+    QueryRoute[POST /api/agent/query]
+    ResearchRoute[POST /api/agent/research]
+    ForceResearch[Force mode = research]
+    ThreadPool[FastAPI thread pool]
+    Init[Initialize AgentState and defaults]
 
-    Request --> Intent --> Readiness --> Planner --> Gate
-    Gate -->|yes| Executor
-    Gate -->|no| Results
-    Executor --> Tools --> Services --> Results
-    Results --> Review --> Report --> Compose
-    Compose -->|yes| LLM --> Response
-    Compose -->|no| Deterministic --> Response
+    UI --> ResearchRoute
+    Client --> QueryRoute
+    Client --> ResearchRoute
+    QueryRoute --> ThreadPool
+    ResearchRoute --> ForceResearch --> ThreadPool
+    ThreadPool --> Init
+
+    subgraph Graph[LangGraph StateGraph]
+        Intent[1. Intent router]
+        HasLLM{LLM key configured?}
+        LLMIntent[LLM classification and entity extraction]
+        IntentOK{Classification succeeded?}
+        Keyword[Deterministic keyword fallback]
+
+        Ready[2. Data readiness]
+        Management{Management intent?}
+        NotRequired[Mark data not required and assumptions]
+        ProviderCheck[Load readiness and source evidence]
+        MissingRefresh{Missing and auto-refresh enabled?}
+        Refresh[Request FinancialReports refresh and mark processing]
+
+        Planner[3. Research planner]
+        Broad{Research mode or broad question?}
+        SinglePlan[Plan selected intent only]
+        CorePlan[Plan snapshot, trend, earnings quality, ROIC/WACC, EWS]
+        HasPeers{At least two peers?}
+        PeerPlan[Add peer and factor tools]
+
+        Executor[4. Research executor]
+        Available{Data available?}
+        ReadinessResult[Create missing or failed readiness ToolResult]
+        NextTool[Select next planned tool]
+        FieldGate{Required fields missing?}
+        Insufficient[Create insufficient_data ToolResult]
+        Invoke[Invoke typed tool over deterministic service]
+        ToolOK{Tool completed?}
+        Success[Store result and attach evidence]
+        Failed[Normalize exception as failed ToolResult]
+        More{More planned tools?}
+        Review[Detect contradictions]
+        Report[Build ResearchReport, verdict and confidence]
+
+        Composer[5. Answer composer]
+        Findings{Any successful findings?}
+        NoData[Compose bilingual data-unavailable answer]
+        ComposeLLM{LLM key configured?}
+        LLMAnswer[Constrained LLM composition]
+        FixedAnswer[Deterministic Traditional Chinese composition]
+
+        Intent --> HasLLM
+        HasLLM -->|no| Keyword
+        HasLLM -->|yes| LLMIntent --> IntentOK
+        IntentOK -->|yes| Ready
+        IntentOK -->|no| Keyword
+        Keyword --> Ready
+
+        Ready --> Management
+        Management -->|yes| NotRequired --> Planner
+        Management -->|no| ProviderCheck --> MissingRefresh
+        MissingRefresh -->|yes| Refresh --> Planner
+        MissingRefresh -->|no| Planner
+
+        Planner --> Broad
+        Broad -->|no| SinglePlan --> Executor
+        Broad -->|yes| CorePlan --> HasPeers
+        HasPeers -->|yes| PeerPlan --> Executor
+        HasPeers -->|no| Executor
+
+        Executor --> Available
+        Available -->|no| ReadinessResult --> Review
+        Available -->|yes| NextTool --> FieldGate
+        FieldGate -->|yes| Insufficient --> More
+        FieldGate -->|no| Invoke --> ToolOK
+        ToolOK -->|yes| Success --> More
+        ToolOK -->|no| Failed --> More
+        More -->|yes| NextTool
+        More -->|no| Review --> Report --> Composer
+
+        Composer --> Findings
+        Findings -->|no| NoData
+        Findings -->|yes| ComposeLLM
+        ComposeLLM -->|yes| LLMAnswer
+        ComposeLLM -->|no| FixedAnswer
+    end
+
+    Init --> Intent
+    NoData --> Response[AgentResponse]
+    LLMAnswer --> Response
+    FixedAnswer --> Response
+    Response --> Output[UI or API client]
 ```
+
+### Agent Implementation Map
+
+| Flow stage | Implementation | State produced |
+| --- | --- | --- |
+| API entry | `app/api/agent.py` | `/query` preserves mode; `/research` forces `research` |
+| State initialization | `FinancialAgent.query` | Query, stock, period, mode, context, and empty result collections |
+| Intent routing | `_intent_router_node` | Intent and extracted entities; keyword fallback on missing key or LLM error |
+| Data readiness | `_data_readiness_node` | Availability, status, quality, freshness warnings, evidence, and optional job ID |
+| Planning | `_research_planner_node` | Deduplicated ordered `research_plan` |
+| Tool execution | `_research_executor_node` | One normalized `ToolResult` per planned tool |
+| Cross-tool review | `_detect_contradictions` | Contradiction messages for supported rule combinations |
+| Report assembly | `_build_research_report` | Verdict, thesis, findings, evidence, risks, gaps, watch items, confidence |
+| Answer composition | `_answer_composer_node` | Evidence-constrained LLM text or deterministic Traditional Chinese text |
+| Public response | `FinancialAgent.query` | `AgentResponse` plus low/medium/high confidence label |
+
+The executor handles tools sequentially in plan order. A blocked or failed tool
+does not terminate the remaining plan: it becomes an `insufficient_data` or
+`failed` result and the report records the resulting gap. Confidence starts
+from the mean of successful tool confidence values, is multiplied by source
+quality when available, and receives a further penalty when data gaps remain.
 
 ### Agent Execution Modes
 
