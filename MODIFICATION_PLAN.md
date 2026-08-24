@@ -13,8 +13,11 @@ quality, validation, evidence, and basic period comparisons. Financial_Agent
 owns higher-order analytics, research planning, tool orchestration, and final
 investment-research responses.
 
-**Implementation status:** Completed on 2026-08-22. The implemented system,
-data-layer, and Agent-layer diagrams are maintained in `ARCHITECTURE.md`.
+**Implementation status:** Financial Agent 2.0 was completed on 2026-08-22.
+The complete FinancialReports v1 producer and rich-schema consumer changes were
+implemented and contract-tested on 2026-08-24; they remain staged as ordered
+pull requests until review and deployment. The implemented system, data-layer,
+and Agent-layer diagrams are maintained in `ARCHITECTURE.md`.
 
 The two applications communicate over a versioned HTTP API. They must not
 share a SQLite file directly.
@@ -111,7 +114,19 @@ MOPS / XBRL / iXBRL / PDF / FinMind
 - [x] Document provider ownership, retry, fallback, cache, and readiness rules.
 - [x] Update API, local-run, Docker, sample-data, and repository-structure docs.
 - [x] Separate implemented behavior from roadmap capabilities.
-- [x] Record test results, constraints, and the remaining FinancialReports API dependency.
+- [x] Record test results, constraints, and the FinancialReports deployment dependency.
+
+### Phase 8: Complete producer-consumer contract
+
+- [x] Implement the FinancialReports HTTP API v1 and committed OpenAPI artifact.
+- [x] Preserve identity, facts, field availability, provenance, validations,
+  comparisons, insight cards, source documents, and pipeline state.
+- [x] Add discovery endpoints and expose consumer capabilities and rich records.
+- [x] Map `filing_not_ready` to a typed processing state instead of an HTTP 500.
+- [x] Traverse paginated stock and period collections.
+- [x] Lock the shared shape with producer and consumer contract tests.
+- [ ] Merge producer baseline PR, producer API PR, then the consumer PR.
+- [ ] Deploy FinancialReports and switch `DATA_PROVIDER` after health validation.
 
 ## FinancialReports API Contract
 
@@ -124,16 +139,22 @@ GET  /v1/stocks/{stock_code}/periods
 GET  /v1/stocks
 POST /v1/filings/{stock_code}/{period}/refresh
 GET  /v1/jobs/{job_id}
+GET  /v1/capabilities
+GET  /v1/schema
+POST /v1/batch/filings/query
 ```
 
-The snapshot response must contain `schema_version`, `identity`, `status`,
-`freshness`, `quality`, `snapshot`, `metrics`, `events`, and `evidence`.
+The snapshot response contains `schema_version`, `identity`, `status`,
+`pipeline_status`, `freshness`, `quality`, `snapshot`, `metrics`,
+`metric_records`, `events`, `evidence`, canonical `facts`,
+`field_availability`, `validation`, `comparisons`, `insight_cards`,
+`source_documents`, and `pipeline_state`.
 Periods use `YYYYQn`; monetary values use `TWD_thousands`; ratios use decimal
 form unless the field name explicitly indicates percent.
 
 ## Compatibility and Fallback Rules
 
-- JSON remains the default provider until the FinancialReports API is deployed.
+- JSON remains the default provider until the reviewed FinancialReports API is deployed.
 - Remote fallback is allowed only for transport errors and server failures.
 - A remote `404` or `422` must not silently fall back to unrelated local data.
 - Existing `FinancialSnapshot` fields and existing financial endpoints remain

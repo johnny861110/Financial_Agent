@@ -459,6 +459,8 @@ record is returned as stale when available.
 
 ```bash
 curl http://localhost:8000/api/data/3661/2025Q1/status
+curl http://localhost:8000/api/data/3661/2025Q1/record
+curl http://localhost:8000/api/data/capabilities
 curl -X POST http://localhost:8000/api/data/3661/2025Q1/refresh
 curl http://localhost:8000/api/data/jobs/JOB_ID
 ```
@@ -512,7 +514,8 @@ uv run black --check app tests ui streamlit_app.py
 | Factor exposure | Implemented with proxy assumptions | Needs enough complete peer records for z-scores. |
 | Early warning system | Implemented | Rule-based red flag detection. |
 | Capital allocation | Partial | Debt change is still a placeholder. |
-| FinancialReports provider | Implemented | Versioned HTTP client, retry, cache, stale mode, and JSON fallback. |
+| FinancialReports producer API | Implemented, pending ordered merge/deploy | Versioned schema, discovery, filing/context, refresh/jobs, batch query, and committed OpenAPI. |
+| FinancialReports provider | Implemented | Full v1 identity/fact/provenance schema, pagination, processing state, retry, cache, stale mode, and JSON fallback. |
 | LangGraph agent | Implemented | Data readiness, deterministic planning, multi-tool research, contradiction checks, and LLM fallback. |
 | Langfuse tracing | Optional | Controlled by env vars. |
 | Sentiment / guidance tools | Not supported | Explicitly return `not_supported`; no fabricated neutral result. |

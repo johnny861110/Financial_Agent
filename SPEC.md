@@ -17,8 +17,9 @@ canonical evidence belong to FinancialReports.
 
 - Support local enhanced JSON and FinancialReports API v1 providers.
 - Normalize both sources into one `SnapshotRecord` contract.
-- Expose source, schema version, freshness, quality, status, metrics, events,
-  and evidence.
+- Expose source, schema version, filing identity, freshness, quality, lifecycle
+  status, canonical facts, availability, metrics, validations, comparisons,
+  source documents, pipeline state, events, and evidence.
 - Retry transport/5xx failures and support controlled JSON fallback.
 - Never fallback on remote 404 or 422 responses.
 - Return stale cached remote data during an outage when available.
@@ -82,6 +83,9 @@ GET  /v1/stocks/{stock_code}/periods
 GET  /v1/stocks
 POST /v1/filings/{stock_code}/{period}/refresh
 GET  /v1/jobs/{job_id}
+GET  /v1/capabilities
+GET  /v1/schema
+POST /v1/batch/filings/query
 ```
 
 Periods use `YYYYQn`. The snapshot response contract and acceptance criteria
@@ -102,9 +106,9 @@ are detailed in `MODIFICATION_PLAN.md`; a fixture is maintained at
 
 ### Priority 1: Source Integration
 
-- Deploy FinancialReports API v1 and run consumer-driven contract tests.
-- Add immutable filing/document/page references to every canonical fact.
-- Add idempotent refresh jobs and durable job status.
+- Review and merge the ordered FinancialReports baseline and API pull requests.
+- Deploy FinancialReports API v1 and run the cross-service smoke test in CI.
+- Move the in-process refresh job registry to durable job infrastructure.
 
 ### Priority 2: Production Controls
 
