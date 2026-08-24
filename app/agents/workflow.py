@@ -234,7 +234,7 @@ class FinancialAgent:
             else None
         )
         if record:
-            evidence = [item.model_dump(mode="json") for item in record.evidence]
+            evidence = record.agent_evidence()
             if not evidence and record.snapshot:
                 evidence = [
                     {

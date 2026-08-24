@@ -46,6 +46,15 @@ def test_json_refresh_returns_service_unavailable():
     assert response.status_code == 503
 
 
+def test_data_capabilities_and_missing_record_endpoints():
+    capabilities = client.get("/api/data/capabilities")
+    missing = client.get("/api/data/999999/2025Q4/record")
+
+    assert capabilities.status_code == 200
+    assert capabilities.json()["source"] == "json"
+    assert missing.status_code == 404
+
+
 def test_management_score_endpoint():
     """Test management score calculation endpoint."""
     response = client.post(
