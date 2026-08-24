@@ -30,6 +30,7 @@ Detailed documentation:
 | [SAMPLE_DATA.md](SAMPLE_DATA.md) | JSON conventions, evidence, and missing-data behavior |
 | [MODIFICATION_PLAN.md](MODIFICATION_PLAN.md) | Completed FinancialReports integration plan |
 | [PROJECT_REPORT.md](PROJECT_REPORT.md) | Current capability, constraints, and priorities |
+| [NEXT_SESSION_PLAN.md](NEXT_SESSION_PLAN.md) | Cross-repository handoff state and next implementation phases |
 
 ## What It Can Do
 
