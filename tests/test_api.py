@@ -2,7 +2,10 @@
 
 import pytest
 from fastapi.testclient import TestClient
+from app.core import DataLoader
 from app.main import app
+from app.services.factory import ServiceRegistry
+from tests.helpers import RecordProvider, make_record
 
 client = TestClient(app)
 
@@ -108,8 +111,16 @@ def test_agent_query_endpoint():
     assert response.status_code == 200
 
 
-def test_roic_wacc_missing_fields_returns_structured_error():
-    """ROIC/WACC should report missing data instead of raising a server error."""
+def test_roic_wacc_missing_fields_returns_structured_error(monkeypatch):
+    """ROIC/WACC should report missing data instead of raising a server error.
+
+    Injects the service registry so the suite stays reproducible on a fresh
+    clone; the repository's data/ directory is gitignored and absent in CI.
+    """
+    record = make_record("2024Q1", snapshot_overrides={"operating_income": None, "equity": None})
+    registry = ServiceRegistry.build(DataLoader(RecordProvider({("2330", "2024Q1"): record})))
+    monkeypatch.setattr("app.api.financials.get_service_registry", lambda: registry)
+
     response = client.post("/api/roic_wacc/2330/2024Q1", json={})
 
     assert response.status_code == 422
