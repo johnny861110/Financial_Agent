@@ -615,17 +615,22 @@ def tool_ews(stock_code: str, period: str) -> Dict[str, Any]:
     return _result("ews", "not_found", error="Data not found")
 
 
+# Planner-facing name -> tool. The planner, the executor, and TOOL_REQUIREMENTS
+# are all keyed by these names; test_tool_eligibility asserts the registries stay
+# in step, so a new tool cannot reach the planner without declaring what it needs.
+TOOL_REGISTRY = {
+    "snapshot": tool_snapshot,
+    "trend": tool_trend,
+    "peer": tool_peer_compare,
+    "management": tool_management_score,
+    "earnings_quality": tool_earnings_quality_score,
+    "roic_wacc": tool_roic_wacc,
+    "factor": tool_factor_exposure,
+    "capital_allocation": tool_capital_allocation,
+    "sentiment": tool_sentiment,
+    "guidance": tool_guidance_tracker,
+    "ews": tool_ews,
+}
+
 # Export all tools
-ALL_TOOLS = [
-    tool_snapshot,
-    tool_trend,
-    tool_peer_compare,
-    tool_management_score,
-    tool_earnings_quality_score,
-    tool_roic_wacc,
-    tool_factor_exposure,
-    tool_capital_allocation,
-    tool_sentiment,
-    tool_guidance_tracker,
-    tool_ews,
-]
+ALL_TOOLS = list(TOOL_REGISTRY.values())
