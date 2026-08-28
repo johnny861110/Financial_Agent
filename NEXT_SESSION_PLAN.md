@@ -40,7 +40,25 @@ eligibility is decided before invocation from canonical field states, and
 the previous gate both had drifted (ews missing `cash_and_equivalents`, factor
 ungated) *and* was dead code under the default JSON provider. One dimension —
 supported company sectors — was deliberately deferred; see Phase C below for
-why. The next session should start Phase D (filing text retrieval).
+why.
+
+**Phase D (filing text retrieval) is complete**, and it required work in the
+producer first. FinancialReports moved from SQLite to **PostgreSQL + pgvector
+in containers** (FinancialReports PR #4, merged as `96abffd`) and then gained
+question-directed retrieval (PR #5, merged as `8d15993`). The consumer side is
+this branch. Three findings shaped it:
+
+1. The producer contract could not support Phase D as written: the context
+   endpoint had no `question` parameter, and its internal `search_keyword` did
+   `content LIKE '%<entire question>%'` — a whole natural-language question as
+   one substring, which matches nothing.
+2. `FinancialReportsProvider.get_context` accepted `question` and **silently
+   dropped it**, so every context request was ranked by static importance.
+3. **94% of chunks in the corpus are duplicates** (323,338 redundant of
+   342,174). This predates the migration — content hashes proved the SQLite
+   copy was faithful — but it defeats bounded retrieval, so results are now
+   deduplicated by content. Fixing the ingestion duplication at its source is
+   still open.
 
 ## 1. Handoff Objective
 
@@ -366,7 +384,10 @@ decision, not an engineering one. The machinery is live and covered by tests
 that override one tool's declaration, so opting a tool in is a one-line change
 rather than new plumbing.
 
-Immediate next work (first task for the next session): start Phase D below.
+Immediate next work (first task for the next session): Phase E (citation and
+pipeline UI). Phase C's `blocked_fields`/`failed_rules` and Phase D's cited
+filing chunks both now reach the report with real data, and neither is rendered
+anywhere in the UI yet.
 
 The `blocked_fields`/`failed_rules` that Phase C added to `ToolResult` are not
 yet surfaced in the UI — that is Phase E's job, and it now has real data to
@@ -535,7 +556,9 @@ Stop all temporary servers before ending the session.
 
 ## 9. Engineering Guardrails
 
-- Do not share the FinancialReports SQLite file with Financial Agent.
+- Do not connect Financial Agent directly to the FinancialReports database.
+  The producer now runs PostgreSQL + pgvector in containers; the contract
+  between the repositories is HTTP only.
 - Do not move raw PDF/XBRL parsing into Financial Agent.
 - Do not let the LLM calculate canonical financial facts.
 - Do not interpret missing, null, or not-applicable as zero.
