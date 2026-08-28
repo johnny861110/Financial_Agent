@@ -1,8 +1,11 @@
 """Peer comparison service."""
 
-from typing import List, Optional
-from app.models import FinancialSnapshot, PeerComparison, PeerAnalysis
+from typing import Callable, List, Optional
+from app.models import PeerComparison, PeerAnalysis
 from app.core import DataLoader
+from app.data import CanonicalFinancialContext
+
+MONEY_UNIT = "TWD_thousands"
 
 
 class PeerService:
@@ -25,14 +28,14 @@ class PeerService:
         Returns:
             PeerAnalysis object or None if insufficient data
         """
-        # Load snapshots for all peers
-        snapshots = []
+        # Load contexts for all peers
+        contexts = []
         for code in stock_codes:
-            snapshot = self.data_loader.load_snapshot(code, period)
-            if snapshot:
-                snapshots.append(snapshot)
+            context = self.data_loader.load_context(code, period)
+            if context and context.has_analysis_data:
+                contexts.append(context)
 
-        if len(snapshots) < 2:
+        if len(contexts) < 2:
             return None
 
         # Default metrics if none specified
@@ -46,58 +49,72 @@ class PeerService:
                 "Debt Ratio",
             ]
 
-        comparisons = []
+        comparisons: List[PeerComparison] = []
 
-        # Build comparisons
+        # Build comparisons; a company missing the specific metric's inputs is
+        # excluded from that comparison rather than contributing a fabricated
+        # zero.
         if "Gross Margin" in metrics:
-            comparisons.append(
-                self._compare_metric(
-                    "Gross Margin (%)", snapshots, lambda s: s.gross_margin, higher_is_better=True
-                )
+            self._append_comparison(
+                comparisons,
+                "Gross Margin (%)",
+                contexts,
+                lambda c: c.ratio_percent("gross_margin", "gross_profit", "net_revenue"),
+                higher_is_better=True,
             )
 
         if "Operating Margin" in metrics:
-            comparisons.append(
-                self._compare_metric(
-                    "Operating Margin (%)",
-                    snapshots,
-                    lambda s: s.operating_margin,
-                    higher_is_better=True,
-                )
+            self._append_comparison(
+                comparisons,
+                "Operating Margin (%)",
+                contexts,
+                lambda c: c.ratio_percent("operating_margin", "operating_income", "net_revenue"),
+                higher_is_better=True,
             )
 
         if "Net Margin" in metrics:
-            comparisons.append(
-                self._compare_metric(
-                    "Net Margin (%)", snapshots, lambda s: s.net_margin, higher_is_better=True
-                )
+            self._append_comparison(
+                comparisons,
+                "Net Margin (%)",
+                contexts,
+                lambda c: c.ratio_percent("net_margin", "net_income", "net_revenue"),
+                higher_is_better=True,
             )
 
         if "ROE" in metrics:
-            comparisons.append(
-                self._compare_metric("ROE (%)", snapshots, lambda s: s.roe, higher_is_better=True)
+            self._append_comparison(
+                comparisons,
+                "ROE (%)",
+                contexts,
+                lambda c: c.ratio_percent("roe", "net_income", "equity", annualize=4),
+                higher_is_better=True,
             )
 
         if "ROA" in metrics:
-            comparisons.append(
-                self._compare_metric("ROA (%)", snapshots, lambda s: s.roa, higher_is_better=True)
+            self._append_comparison(
+                comparisons,
+                "ROA (%)",
+                contexts,
+                lambda c: c.ratio_percent("roa", "net_income", "total_assets", annualize=4),
+                higher_is_better=True,
             )
 
         if "Debt Ratio" in metrics:
-            comparisons.append(
-                self._compare_metric(
-                    "Debt Ratio (%)", snapshots, lambda s: s.debt_ratio, higher_is_better=False
-                )
+            self._append_comparison(
+                comparisons,
+                "Debt Ratio (%)",
+                contexts,
+                lambda c: c.ratio_percent("debt_ratio", "total_liabilities", "total_assets"),
+                higher_is_better=False,
             )
 
         if "Current Ratio" in metrics:
-            comparisons.append(
-                self._compare_metric(
-                    "Current Ratio",
-                    snapshots,
-                    lambda s: s.current_ratio if s.current_ratio else 0.0,
-                    higher_is_better=True,
-                )
+            self._append_comparison(
+                comparisons,
+                "Current Ratio",
+                contexts,
+                self._current_ratio,
+                higher_is_better=True,
             )
 
         # Generate summary
@@ -105,16 +122,37 @@ class PeerService:
 
         return PeerAnalysis(period=period, comparisons=comparisons, summary=summary)
 
-    def _compare_metric(
+    def _current_ratio(self, context: CanonicalFinancialContext) -> Optional[float]:
+        """Current assets / current liabilities, preferring a producer-supplied ratio."""
+        ratio = context.metric_value("current_ratio", "ratio")
+        if ratio is not None:
+            return ratio
+        current_assets = context.optional_value("current_assets", MONEY_UNIT)
+        current_liabilities = context.optional_value("current_liabilities", MONEY_UNIT)
+        if current_assets is None or current_liabilities is None or current_liabilities == 0:
+            return None
+        return current_assets / current_liabilities
+
+    def _append_comparison(
         self,
+        comparisons: List[PeerComparison],
         metric_name: str,
-        snapshots: List[FinancialSnapshot],
-        extractor,
+        contexts: List[CanonicalFinancialContext],
+        extractor: Callable[[CanonicalFinancialContext], Optional[float]],
+        *,
         higher_is_better: bool = True,
-    ) -> PeerComparison:
-        """Build a PeerComparison for a specific metric."""
-        companies = [s.company_name for s in snapshots]
-        values = [extractor(s) for s in snapshots]
+    ) -> None:
+        """Build a PeerComparison for a specific metric, skipping companies without it."""
+        companies: List[str] = []
+        values: List[float] = []
+        for context in contexts:
+            value = extractor(context)
+            if value is not None:
+                companies.append(context.company_name)
+                values.append(value)
+
+        if len(values) < 2:
+            return
 
         # Calculate rankings (1 = best)
         if higher_is_better:
@@ -126,8 +164,10 @@ class PeerService:
         for rank, (idx, _) in enumerate(sorted_values, start=1):
             ranking[idx] = rank
 
-        return PeerComparison(
-            metric_name=metric_name, companies=companies, values=values, ranking=ranking
+        comparisons.append(
+            PeerComparison(
+                metric_name=metric_name, companies=companies, values=values, ranking=ranking
+            )
         )
 
     def _generate_summary(self, comparisons: List[PeerComparison], stock_codes: List[str]) -> str:

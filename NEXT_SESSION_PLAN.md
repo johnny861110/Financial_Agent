@@ -15,13 +15,17 @@ quality, `57d989c` ews, `41fafb5` docs) was merged as `3420e9d`.
 Same day, later: `ROICWACCService` and `CapitalAllocationService` are also
 migrated onto `DataLoader.load_context()`. PR #6 (branch
 `refactor/roic-wacc-capital-allocation-canonical-context`, commits `2ef7e0b`
-roic, `194c1fe` capital, `3bdace0` docs) was merged as `c1e0293`; local and
-remote `main` are synchronized (`0/0` ahead/behind) and the feature branch
-was deleted locally and remotely. Gates were green before merge (62 pytest
-tests, mypy/black/compileall/whitespace/fsck clean, GitNexus re-indexed at
-1,630 nodes / 2,767 edges / 0 import cycles). See the updated Phase B status
-and "Immediate next work" below — the next session should start there (peer
-and factor services).
+roic, `194c1fe` capital, `3bdace0` docs) was merged as `c1e0293`.
+
+Same day, later still: `PeerService` and `FactorService` are migrated too,
+on local branch `refactor/peer-factor-canonical-context` (commits `bcd3865`
+peers, `ac98562` factors), gate-verified (70 pytest tests,
+mypy/black/compileall/whitespace/fsck clean, GitNexus re-indexed at 1,664
+nodes / 2,869 edges / 0 import cycles). **This completes Phase B's entire
+service migration order** (Snapshot, Trend, EarningsQuality/EWS,
+ROIC-WACC/CapitalAllocation, Peer/Factor — all five items done). The next
+session should start Phase C (schema-aware tool contracts) — see the
+rewritten "Immediate next work" below.
 
 ## 1. Handoff Objective
 
@@ -164,10 +168,10 @@ context, but analysis utilization remains incomplete elsewhere.
 | --- | --- | --- |
 | Filing identity | Yes | Partially |
 | Normalized snapshot | Yes | Yes |
-| Canonical facts and units | Yes | Snapshot/Trend/EarningsQuality/EWS/ROIC-WACC use them via `load_context()`; CapitalAllocationService only needs the existence check (its figures are caller-supplied assumptions); peer/factor do not yet |
+| Canonical facts and units | Yes | All eight deterministic services use `load_context()`. CapitalAllocationService and PeerService only need it for existence/skip checks (no hard required-field gate for either); Snapshot/Trend/EarningsQuality/EWS/ROIC-WACC/FactorService also declare and enforce required fields |
 | Fact evidence text | Yes | Yes, bounded fact-level excerpts |
 | Quality, missing fields, freshness | Yes | Yes |
-| Field availability states | Yes | Used by Snapshot/Trend/EarningsQuality/EWS/ROIC-WACC; not yet by tool planning |
+| Field availability states | Yes | Used by every service with a required-field gate (Snapshot, Trend, EarningsQuality, EWS, ROIC-WACC, FactorService); not yet by tool planning (Phase C) |
 | Validation records | Yes | Surfaced as red flags (EarningsQuality) / signals (EWS) / commentary notes (ROIC-WACC) for blocking (error-severity) failures on required fields; not yet used as planner/executor gates (Phase C) |
 | Metric records and formulas | Yes | Snapshot/Trend/EWS/ROIC-WACC use producer ratios when available |
 | Producer YoY/QoQ comparisons | Yes | Not used by trend analysis |
@@ -255,42 +259,24 @@ Recommended order:
 2. Trend service - completed
 3. Earnings quality and EWS - completed (PR #5, merged as `3420e9d`)
 4. ROIC/WACC and capital allocation - completed (PR #6, merged as `c1e0293`)
-5. Peer and factor services
+5. Peer and factor services - completed (branch
+   `refactor/peer-factor-canonical-context`, commits `bcd3865` peers,
+   `ac98562` factors; see top-of-file session update for PR/merge SHA once
+   merged)
 
-Acceptance criteria:
+**Phase B's service migration order is now fully complete.** All eight
+deterministic services (Snapshot, Trend, EarningsQuality, EWS, ROIC-WACC,
+CapitalAllocation, Peer, Factor) go through `DataLoader.load_context()`.
+
+Acceptance criteria (met by every migrated service):
 
 - Missing values cannot silently become numeric zero.
 - `not_applicable` is distinct from missing.
 - Unit mismatch produces a typed error.
 - Every newly migrated calculated finding records source fact IDs and assumptions.
 
-Immediate next work (first task for the next session):
-
-1. Run GitNexus impact analysis on `PeerService` and `FactorService`
-   (`mcp__gitnexus__impact` upstream on each class before editing — the
-   same LOW-risk pattern held for all four services migrated so far).
-2. Read `app/services/peer_service.py` and `app/services/factor_service.py`
-   first: `PeerService.compare_peers` loads multiple stocks' snapshots for
-   one period (a different shape than the single-stock-multi-period pattern
-   Trend/EarningsQuality/EWS used), and `FactorService` takes an optional
-   peer list too — check whether either already returns `None`/skips instead
-   of raising on missing data before deciding whether they need
-   `required_context_values()` at all, or just a `load_context()` swap like
-   `CapitalAllocationService` got (no required-field contract to preserve).
-3. Migrate both to `load_context()`/`load_multiple_contexts()` without
-   changing their public API, reusing `required_context_values()`
-   (`app/core/utils.py`) only if the service actually raises
-   `InsufficientDataError` today — don't add a new required-field gate a
-   service didn't have before.
-4. Add tests matching whatever categories actually apply (see
-   `tests/test_capital_allocation_context.py` for the precedent of a lighter
-   test file when a service has no required-field/unit/validation surface;
-   `tests/test_roic_wacc_context.py` for the full 5-category shape when it
-   does). Reuse `tests/helpers.py`'s `RecordProvider`/`make_record`/
-   `make_snapshot` rather than duplicating them.
-5. Commit as a pair, run full gates, refresh GitNexus, update this handoff,
-   PR, merge. This closes out Phase B's service migration order — Phase C
-   (schema-aware tool contracts) is next after that.
+Immediate next work (first task for the next session): start Phase C
+(schema-aware tool contracts) below.
 
 ### Phase C: Schema-Aware Tool Contracts
 
@@ -311,6 +297,39 @@ Acceptance criteria:
 - Tool eligibility is deterministic and testable.
 - Tool results explain every blocked field or validation.
 - Confidence reflects quality, freshness, validation, and evidence coverage.
+
+Immediate next work (first task for the next session):
+
+1. Read `app/agents/contracts.py` (`ToolResult`, the one auditable result
+   shape every tool already returns) and `app/agents/tools.py` (the 11
+   `@tool` functions in `ALL_TOOLS`, each wrapping one service call).
+2. Add a new declaration type to `contracts.py` (e.g. `ToolRequirements`):
+   required/optional fields, expected units, minimum quality/evidence
+   coverage, blocking validation rules, whether stale data is allowed,
+   supported sectors. Every migrated service already exposes its own
+   required-field list as a module constant — reuse them instead of
+   hand-duplicating: `EARNINGS_QUALITY_REQUIRED_FIELDS`
+   (`earnings_quality_service.py`), `EWS_REQUIRED_FIELDS`
+   (`ews_service.py`), `ROIC_WACC_REQUIRED_FIELDS`
+   (`roic_wacc_service.py`), `FACTOR_MONEY_FIELDS` (`factor_service.py`).
+   Snapshot, Trend, CapitalAllocation, and Peer have no hard required-field
+   gate today (best-effort/skip semantics) — their contract should say so
+   explicitly rather than inventing one.
+3. Wire the declaration into the planner/executor in `app/agents/workflow.py`
+   so tool eligibility is decided *before* calling a tool (checking
+   `CanonicalFinancialContext.field_states()`/`availability()` against the
+   declared required fields), not only discovered after a service raises
+   `InsufficientDataError`. The LLM must not be the one deciding whether
+   data is structurally valid.
+4. Extend `ToolResult` (or add a sibling type) so a blocked tool call
+   explains every blocked field/validation by name, not just a freeform
+   `finding` string — reuse the `field_states()`/`failed_validations()`
+   accessors already on `CanonicalFinancialContext`.
+5. Add deterministic tests: a tool is ineligible when a declared required
+   field is `missing`/`not_applicable`/`provider_failure`, eligible when
+   `present`, and confidence reflects quality/freshness/validation/evidence
+   coverage per the acceptance criteria above.
+6. Commit, run full gates, refresh GitNexus, update this handoff, PR, merge.
 
 ### Phase D: Filing Text Retrieval
 
@@ -414,6 +433,11 @@ After the ROIC-WACC/CapitalAllocation migration (PR #6, merged as `c1e0293`):
 62 pytest tests passed, 27 source files passed mypy, 61 files passed Black,
 and compileall/whitespace-diff/fsck checks passed the same way.
 
+After the Peer/Factor migration (branch
+`refactor/peer-factor-canonical-context`, completing Phase B): 70 pytest
+tests passed, 27 source files passed mypy, 63 files passed Black, and
+compileall/whitespace-diff/fsck checks passed the same way.
+
 ### FinancialReports
 
 Use the repository's Ruff, mypy, pytest, compile, OpenAPI drift, and Python
@@ -472,22 +496,26 @@ Use this prompt at the start of the next session:
 ```text
 Read NEXT_SESSION_PLAN.md first. Verify both repositories, all merged PRs, local
 and remote SHAs, and GitNexus financial-platform status. Financial_Agent has
-merged PR #5 (EarningsQuality/EWS onto canonical financial context, at commit
-3420e9d) and PR #6 (ROIC-WACC/CapitalAllocation, at commit c1e0293). Do not
-reimplement the FinancialReports
-provider, API, SnapshotRecord mapping, or CanonicalFinancialContext. Start by
-impact-analyzing PeerService and FactorService, read their current
-implementations first (compare_peers takes multiple stock codes for one
-period, a different shape than the other migrated services), then migrate
-whichever parts of their contract actually need it to
-DataLoader.load_context()/load_multiple_contexts() with field/unit/validation
-tests where applicable, reusing `required_context_values()`
-(app/core/utils.py) and the test helpers in tests/helpers.py -- don't invent a
-required-field gate a service didn't already have. Preserve the
-FinancialReports untracked paths listed in the handoff. Use small commits, run
-both focused and full gates, refresh GitNexus, update this handoff, merge
-through PR, and return both repos to synchronized main. Confirm with the user
-before any push/PR/merge step.
+merged PR #5 (EarningsQuality/EWS, at commit 3420e9d), PR #6
+(ROIC-WACC/CapitalAllocation, at commit c1e0293), and a Peer/Factor migration
+that completes Phase B's entire service migration order (see the top-of-file
+session update for its PR/merge SHA once merged). Do not reimplement the
+FinancialReports provider, API, SnapshotRecord mapping, or
+CanonicalFinancialContext, and do not re-migrate any of the eight services
+already on DataLoader.load_context(). Start Phase C (schema-aware tool
+contracts): read app/agents/contracts.py and app/agents/tools.py, then add a
+ToolRequirements-style declaration (required/optional fields, expected units,
+minimum quality/evidence coverage, blocking validation rules, stale-data
+tolerance, supported sectors) to each of the 11 tools in ALL_TOOLS, reusing
+the *_REQUIRED_FIELDS constants each migrated service already exports rather
+than duplicating them. Wire the declaration into app/agents/workflow.py's
+planner so tool eligibility is decided before execution, not only discovered
+after a service raises InsufficientDataError. See Phase C's "Immediate next
+work" list for the full six-step breakdown. Preserve the FinancialReports
+untracked paths listed in the handoff. Use small commits, run both focused
+and full gates, refresh GitNexus, update this handoff, merge through PR, and
+return both repos to synchronized main. Confirm with the user before any
+push/PR/merge step.
 ```
 
 ## 11. Definition of the Next Milestone Done
