@@ -14,6 +14,33 @@ ToolStatus = Literal[
 ]
 
 
+class ToolRequirements(BaseModel):
+    """What a tool needs from a filing before it is worth invoking.
+
+    Declared once per tool so eligibility is decided deterministically, before
+    execution, instead of being discovered when a service raises. Field lists
+    are imported from the owning service rather than restated, so the planner
+    and the service can never disagree about what a tool requires.
+    """
+
+    required_fields: list[str] = Field(default_factory=list)
+    expected_unit: str | None = None
+    # Fields whose unit differs from expected_unit (e.g. eps_basic is per-share
+    # while the rest of a tool's inputs are monetary).
+    extra_unit_fields: dict[str, str] = Field(default_factory=dict)
+    min_quality: float | None = Field(default=None, ge=0, le=1)
+    blocking_validation_rules: list[str] = Field(default_factory=list)
+    allows_stale: bool = True
+    # False for tools scored purely from caller-supplied assumptions, which stay
+    # eligible even when no filing data is available.
+    uses_filing_data: bool = True
+
+    @property
+    def all_required_fields(self) -> list[str]:
+        """Required fields across both unit groups, in declaration order."""
+        return [*self.required_fields, *self.extra_unit_fields]
+
+
 class ToolResult(BaseModel):
     """One auditable result shape for every financial analysis tool."""
 
@@ -27,6 +54,11 @@ class ToolResult(BaseModel):
     assumptions: dict[str, Any] = Field(default_factory=dict)
     confidence: float = Field(default=0.0, ge=0, le=1)
     error: str | None = None
+    # Populated when the planner blocks a tool: the specific field states and
+    # validation rules that made it ineligible, so a blocked result explains
+    # itself without parsing the freeform finding string.
+    blocked_fields: dict[str, str] = Field(default_factory=dict)
+    failed_rules: list[str] = Field(default_factory=list)
 
     @computed_field
     @property
