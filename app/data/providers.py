@@ -36,7 +36,13 @@ class FinancialDataProvider(Protocol):
     def list_all_stocks(self) -> list[str]: ...
 
     def get_context(
-        self, stock_code: str, period: str, question: str | None = None
+        self,
+        stock_code: str,
+        period: str,
+        question: str | None = None,
+        *,
+        sections: list[str] | None = None,
+        evidence_limit: int = 50,
     ) -> dict[str, Any] | None: ...
 
     def request_refresh(self, stock_code: str, period: str) -> dict[str, Any]: ...
@@ -92,8 +98,16 @@ class JsonFinancialDataProvider:
         return sorted(stocks)
 
     def get_context(
-        self, stock_code: str, period: str, question: str | None = None
+        self,
+        stock_code: str,
+        period: str,
+        question: str | None = None,
+        *,
+        sections: list[str] | None = None,
+        evidence_limit: int = 50,
     ) -> dict[str, Any] | None:
+        # The JSON provider carries no filing text, so retrieval
+        # arguments are accepted for protocol parity and ignored.
         record = self.load_record(stock_code, period)
         return record.model_dump(mode="json") if record else None
 
@@ -316,12 +330,25 @@ class FinancialReportsProvider:
             offset += len(page)
 
     def get_context(
-        self, stock_code: str, period: str, question: str | None = None
+        self,
+        stock_code: str,
+        period: str,
+        question: str | None = None,
+        *,
+        sections: list[str] | None = None,
+        evidence_limit: int = 50,
     ) -> dict[str, Any] | None:
+        # question was previously accepted and silently dropped, so every
+        # request came back ranked by static importance rather than relevance.
+        params: dict[str, Any] = {"evidence_limit": evidence_limit}
+        if question:
+            params["question"] = question
+        if sections:
+            params["sections"] = list(sections)
         response = self._request(
             "GET",
             f"/v1/filings/{stock_code}/{period}/context",
-            params={"evidence_limit": 50},
+            params=params,
         )
         if response.status_code == 404:
             return None
@@ -373,12 +400,30 @@ class FallbackFinancialDataProvider:
             return self.fallback.list_all_stocks()
 
     def get_context(
-        self, stock_code: str, period: str, question: str | None = None
+        self,
+        stock_code: str,
+        period: str,
+        question: str | None = None,
+        *,
+        sections: list[str] | None = None,
+        evidence_limit: int = 50,
     ) -> dict[str, Any] | None:
         try:
-            return self.primary.get_context(stock_code, period, question)
+            return self.primary.get_context(
+                stock_code,
+                period,
+                question,
+                sections=sections,
+                evidence_limit=evidence_limit,
+            )
         except FinancialDataProviderUnavailable:
-            return self.fallback.get_context(stock_code, period, question)
+            return self.fallback.get_context(
+                stock_code,
+                period,
+                question,
+                sections=sections,
+                evidence_limit=evidence_limit,
+            )
 
     def request_refresh(self, stock_code: str, period: str) -> dict[str, Any]:
         return self.primary.request_refresh(stock_code, period)

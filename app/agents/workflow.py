@@ -11,6 +11,7 @@ from langchain_core.output_parsers import PydanticOutputParser
 from langchain_core.prompts import PromptTemplate
 from app.core import DataLoader, get_settings
 from app.agents.contracts import ResearchFinding, ResearchReport, ToolResult
+from app.agents.retrieval import citation, retrieve
 from app.agents.tools import TOOL_REGISTRY, evaluate_eligibility, required_fields_for_planning
 from app.data.context import CanonicalFinancialContext
 from app.data.readiness import DataReadinessService
@@ -41,6 +42,7 @@ class AgentState(TypedDict):
     report: dict
     field_states: dict[str, str]
     failed_rules: list[str]
+    filing_text: dict
 
 
 class FinancialAgent:
@@ -129,13 +131,15 @@ class FinancialAgent:
 
         workflow.add_node("intent_router", self._intent_router_node)
         workflow.add_node("data_readiness", self._data_readiness_node)
+        workflow.add_node("filing_text", self._filing_text_node)
         workflow.add_node("research_planner", self._research_planner_node)
         workflow.add_node("research_executor", self._research_executor_node)
         workflow.add_node("answer_composer", self._answer_composer_node)
 
         workflow.set_entry_point("intent_router")
         workflow.add_edge("intent_router", "data_readiness")
-        workflow.add_edge("data_readiness", "research_planner")
+        workflow.add_edge("data_readiness", "filing_text")
+        workflow.add_edge("filing_text", "research_planner")
         workflow.add_edge("research_planner", "research_executor")
         workflow.add_edge("research_executor", "answer_composer")
         workflow.add_edge("answer_composer", END)
@@ -278,6 +282,27 @@ class FinancialAgent:
                 )
             except Exception as exc:
                 state["data_readiness"].setdefault("warnings", []).append(str(exc))
+        return state
+
+    def _filing_text_node(self, state: AgentState) -> AgentState:
+        """Retrieve narrative filing text, but only for questions that need it.
+
+        Numeric questions stay entirely on the structured-fact path; this node
+        is a no-op for them. Retrieval never raises, so a failure becomes a
+        recorded data gap rather than a failed run.
+        """
+        readiness = state.get("data_readiness", {})
+        if not readiness.get("available", False):
+            state["filing_text"] = {}
+            return state
+
+        context = retrieve(
+            self.data_loader.provider,
+            state["stock_code"],
+            state["period"],
+            state.get("query", ""),
+        )
+        state["filing_text"] = context.as_state() if (context.topics or context.error) else {}
         return state
 
     def _research_planner_node(self, state: AgentState) -> AgentState:
@@ -504,6 +529,25 @@ class FinancialAgent:
                 if result.get("error"):
                     gaps.append(f"{tool_name}: {result['error']}")
 
+        filing_text = state.get("filing_text", {})
+        for chunk in filing_text.get("chunks", []):
+            evidence.append(
+                {
+                    "source_type": "filing_text",
+                    "chunk_id": chunk.get("chunk_id"),
+                    "doc_id": chunk.get("doc_id"),
+                    "page_number": chunk.get("page_number"),
+                    "section_title": chunk.get("section_title") or chunk.get("section_type"),
+                    "source_url": chunk.get("source_url"),
+                    "checksum": chunk.get("checksum"),
+                    "excerpt": chunk.get("content"),
+                    "citation": citation(chunk),
+                    "retrieval_score": chunk.get("retrieval_score"),
+                }
+            )
+        if filing_text.get("error"):
+            gaps.append(f"filing_text: {filing_text['error']}")
+
         ews_level = results.get("ews", {}).get("data", {}).get("warning_level")
         roic_creating = results.get("roic_wacc", {}).get("data", {}).get("creating_value")
         earnings_score = results.get("earnings_quality", {}).get("data", {}).get("total_score")
@@ -728,20 +772,33 @@ class FinancialAgent:
             state["final_answer"] = "\n\n".join(answer_parts)
             return state
 
+        filing_text = state.get("filing_text", {})
+        passages = ""
+        if filing_text.get("chunks"):
+            passages = "\n\n".join(
+                f"[{citation(chunk)}]\n{chunk.get('content', '')}"
+                for chunk in filing_text["chunks"]
+            )
+            passages = (
+                "\n\nFiling passages retrieved for this question "
+                "(quote these only with their bracketed source):\n" + passages
+            )
+
         prompt = f"""
 You are a professional financial analyst. Write a concise Traditional Chinese
-answer using only the structured research report below.
+answer using only the structured research report and filing passages below.
 
 User question: {state.get('query', '')}
 Stock: {state.get('stock_code')}
 Period: {state.get('period')}
-Research report: {json.dumps(report, ensure_ascii=False)}
+Research report: {json.dumps(report, ensure_ascii=False)}{passages}
 
 Requirements:
 - State the verdict and investment thesis.
 - Separate evidence, risks, contradictions, and data gaps.
 - Do not add prices, forecasts, recommendations, or facts absent from the report.
 - Explicitly qualify low-confidence or assumption-based findings.
+- Every claim drawn from a filing passage must cite its bracketed source.
 """
 
         response = self.llm.invoke(
@@ -784,6 +841,7 @@ Requirements:
             report={},
             field_states={},
             failed_rules=[],
+            filing_text={},
         )
 
         # Run the workflow
