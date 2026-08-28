@@ -128,8 +128,9 @@ interface while the source changes.
 
 FinancialReports implements the versioned endpoints documented in
 `MODIFICATION_PLAN.md`, including schema/capability discovery and batch query.
-Until the ordered producer PRs are reviewed and deployed,
-`DATA_PROVIDER=json` remains the supported default.
+The merged producer and consumer were validated together locally. Until a named
+target deployment passes the same checks, `DATA_PROVIDER=json` remains the
+repository default.
 
 ## Agent Layer Architecture
 

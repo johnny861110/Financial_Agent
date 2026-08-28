@@ -1,6 +1,6 @@
 # Next Session Handoff Plan
 
-**Prepared:** 2026-08-24
+**Prepared:** 2026-08-28
 
 **Milestone:** FinancialReports v1 producer-consumer integration complete
 
@@ -13,13 +13,14 @@ provider or API boundary. The next session should make Financial Agent actively
 use FinancialReports rich schema and filing evidence, instead of only preserving
 most rich fields in `SnapshotRecord`.
 
-The immediate goals are:
+Phase A merge and local deployment validation are complete. The immediate goals
+are now:
 
-1. Safely merge and deploy the current stacked pull requests.
-2. Replace snapshot-only analysis inputs with a canonical financial context.
-3. Make tool planning and execution respect units, availability, validation,
+1. Replace snapshot-only analysis inputs with a canonical financial context.
+2. Make tool planning and execution respect units, availability, validation,
    freshness, and evidence coverage.
-4. Add question-directed filing-text retrieval with traceable citations.
+3. Add question-directed filing-text retrieval with traceable citations.
+4. Prepare production deployment controls and environment-specific configuration.
 
 ## 2. Current Repository State
 
@@ -27,12 +28,10 @@ The immediate goals are:
 
 - Repository: `johnny861110/Financial_Agent`
 - Local path: `/mnt/c/Users/johnn/GITHUB_REPO/Financial_Agent`
-- Main: `2784ffdfb514eb3c0c53e139833f4bbd2af216a6`
-- Feature branch: `feat/financial-reports-schema-v1`
-- Feature HEAD: `857f45f9fc934d7b29d3751c6200ab092dfc0821`
+- Main: `58a4de118f91145a9d400c6a27f84dcba60114d7`
 - Pull request: <https://github.com/johnny861110/Financial_Agent/pull/1>
-- PR state at handoff: open draft, clean merge state
-- Worktree at handoff: clean before this handoff document
+- PR state at handoff: merged on 2026-08-28
+- Worktree at handoff: clean before the closure-document update
 
 Feature commits before this handoff:
 
@@ -40,24 +39,25 @@ Feature commits before this handoff:
 cddba2e feat(data): consume complete FinancialReports v1 schema
 621dd17 feat(agent): expose rich financial evidence records
 857f45f docs: document complete FinancialReports integration
+e2be6d1 docs: add next-session handoff plan
+7699d2f fix(ui): avoid eager page imports
 ```
 
 ### FinancialReports
 
 - Repository: `johnny861110/FinancialReports`
 - Local path: `/mnt/c/Users/johnn/GITHUB_REPO/FinancialReports`
-- Main: `0895a8e4dd55d2078e652e37b2688269d40e49ca`
+- Main: `8ba3cfcbae30f38786661d110b0dc8e1ed9c831d`
 - Baseline branch: `fix/finmind-bank-support`
 - Baseline HEAD: `6db6a84163f61d5faa74fc5a2dd37a8023ad0290`
 - API branch: `feat/versioned-schema-api`
 - API HEAD: `c61d8ff62610b7c3a493108fc138c983c17d399b`
 - Baseline PR: <https://github.com/johnny861110/FinancialReports/pull/1>
 - API PR: <https://github.com/johnny861110/FinancialReports/pull/2>
-- PR state at handoff: both open drafts with clean merge state
+- PR state at handoff: both merged on 2026-08-28
 
-The API PR is stacked on the baseline branch. Its GitHub workflow does not run
-while its base is `fix/finmind-bank-support`, because the workflow currently
-filters pull requests to `main`.
+PR #2 was retargeted to `main`, synchronized with the PR #1 merge commit, and
+passed the Python 3.10, 3.11, and 3.12 matrix before merge.
 
 Do not delete or commit these pre-existing untracked FinancialReports paths
 without explicit user instruction:
@@ -69,19 +69,22 @@ CLAUDE.md
 examples/batch_2025_missing.json
 ```
 
-## 3. Required Merge and Deployment Order
+## 3. Phase A Closure Record
 
-Do not merge the consumer first. Use this order:
+Completed on 2026-08-28:
 
-1. Review and merge FinancialReports PR #1 into `main`.
-2. Retarget FinancialReports PR #2 from `fix/finmind-bank-support` to `main`.
-3. Wait for the FinancialReports matrix CI to pass on PR #2.
-4. Merge FinancialReports PR #2.
-5. Deploy FinancialReports and verify `/health/ready` and schema `1.0.0`.
-6. Re-run the live cross-repository smoke test with JSON fallback disabled.
-7. Review and merge Financial_Agent PR #1.
-8. Keep `DATA_PROVIDER=json` as the default until the deployed producer passes
-   readiness and filing-query checks in the target environment.
+1. FinancialReports PR #1 merged as `0b7f41c`.
+2. FinancialReports PR #2 retargeted to `main`, synchronized, and passed CI.
+3. FinancialReports PR #2 merged as `8ba3cfc`.
+4. FinancialReports `main` started locally and reported schema `1.0.0` ready.
+5. Financial Agent ran with `ALLOW_JSON_FALLBACK=false` against producer main.
+6. Capabilities, rich record, stale readiness, and financial analysis passed for
+   `2330/2025Q1` using the existing FinancialReports database.
+7. Financial_Agent PR #1 merged as `58a4de1`.
+
+No production deployment target or credentials were provided. Keep
+`DATA_PROVIDER=json` as the repository default until a target environment passes
+the same readiness and filing-query checks.
 
 After every merge, fetch and fast-forward local `main`; verify local and remote
 SHA equality before deleting feature branches.
@@ -141,14 +144,14 @@ The existing deterministic services still primarily call
 
 ## 6. Next Milestone Design
 
-### Phase A: Merge, Deploy, and Pin the Contract
+### Phase A: Merge, Deploy, and Pin the Contract (Completed Locally)
 
-- Execute the merge order in section 3.
-- Compare deployed `/openapi.json` with the committed producer artifact.
-- Verify capabilities, one complete filing, one partial filing, one missing
-  filing, and one processing filing.
-- Record the deployed producer version in Financial Agent readiness output.
-- Add a CI smoke job or consumer-driven contract job that checks both repos.
+- [x] Execute the merge order in section 3.
+- [x] Lock runtime OpenAPI to the committed producer artifact in tests.
+- [x] Verify capabilities and a real filing across both merged codebases.
+- [x] Expose the producer schema version through capabilities and readiness.
+- [ ] Add a CI smoke job spanning both repositories.
+- [ ] Deploy to a named production/staging target when one is provided.
 
 Acceptance criteria:
 

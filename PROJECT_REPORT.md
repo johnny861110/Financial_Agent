@@ -2,7 +2,7 @@
 
 **Version:** 2.0
 
-**Status date:** 2026-08-24
+**Status date:** 2026-08-28
 
 **Purpose:** Evidence-backed financial statement research and deterministic
 financial analysis.
@@ -66,8 +66,8 @@ between narrow and broad behavior from the request.
 
 ## Current Constraints
 
-- FinancialReports v1 is implemented and contract-tested but still requires
-  ordered PR review, merge, and deployment.
+- FinancialReports v1 and its consumer are merged and contract-tested. A named
+  production deployment target has not been configured.
 - The cache and Agent state are process-local and not durable.
 - No authentication, authorization, rate limiting, or tenant isolation exists.
 - ROIC/WACC and management analyses may rely on explicit defaults/caller input.
@@ -86,9 +86,9 @@ cross-layer change affected 34 files, 184 symbols, and 65 processes.
 
 ## Next Engineering Priorities
 
-1. Merge and deploy the ordered FinancialReports PRs, then enable the remote provider.
-2. Add authentication, request limits, durable job state, and shared cache.
-3. Add filing-level citations with document/page links in the UI.
+1. Introduce canonical financial context and schema-aware tool gates.
+2. Add question-directed filing text retrieval and citations.
+3. Add authentication, request limits, durable job state, and shared cache.
 4. Replace proxy/default inputs with audited cash-flow and market data.
 5. Add evaluation datasets for verdict stability, citation completeness, and
    contradiction recall before adding more Agent roles.

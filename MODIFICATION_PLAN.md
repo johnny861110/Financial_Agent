@@ -15,8 +15,9 @@ investment-research responses.
 
 **Implementation status:** Financial Agent 2.0 was completed on 2026-08-22.
 The complete FinancialReports v1 producer and rich-schema consumer changes were
-implemented and contract-tested on 2026-08-24; they remain staged as ordered
-pull requests until review and deployment. The implemented system, data-layer,
+implemented and contract-tested on 2026-08-24. The ordered producer and consumer
+pull requests were merged and validated together on 2026-08-28. Production
+deployment remains environment-specific. The implemented system, data-layer,
 and Agent-layer diagrams are maintained in `ARCHITECTURE.md`.
 
 The two applications communicate over a versioned HTTP API. They must not
@@ -125,8 +126,9 @@ MOPS / XBRL / iXBRL / PDF / FinMind
 - [x] Map `filing_not_ready` to a typed processing state instead of an HTTP 500.
 - [x] Traverse paginated stock and period collections.
 - [x] Lock the shared shape with producer and consumer contract tests.
-- [ ] Merge producer baseline PR, producer API PR, then the consumer PR.
-- [ ] Deploy FinancialReports and switch `DATA_PROVIDER` after health validation.
+- [x] Merge producer baseline PR, producer API PR, then the consumer PR.
+- [x] Run FinancialReports main and cross-repository health validation locally.
+- [ ] Deploy FinancialReports and switch `DATA_PROVIDER` in a named target environment.
 
 ## FinancialReports API Contract
 

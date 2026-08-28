@@ -106,8 +106,8 @@ are detailed in `MODIFICATION_PLAN.md`; a fixture is maintained at
 
 ### Priority 1: Source Integration
 
-- Review and merge the ordered FinancialReports baseline and API pull requests.
-- Deploy FinancialReports API v1 and run the cross-service smoke test in CI.
+- Add a cross-service smoke test to CI using the merged FinancialReports API v1.
+- Deploy FinancialReports to a named target and validate it with fallback disabled.
 - Move the in-process refresh job registry to durable job infrastructure.
 
 ### Priority 2: Production Controls

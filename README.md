@@ -515,7 +515,7 @@ uv run black --check app tests ui streamlit_app.py
 | Factor exposure | Implemented with proxy assumptions | Needs enough complete peer records for z-scores. |
 | Early warning system | Implemented | Rule-based red flag detection. |
 | Capital allocation | Partial | Debt change is still a placeholder. |
-| FinancialReports producer API | Implemented, pending ordered merge/deploy | Versioned schema, discovery, filing/context, refresh/jobs, batch query, and committed OpenAPI. |
+| FinancialReports producer API | Merged and locally validated | Versioned schema, discovery, filing/context, refresh/jobs, batch query, and committed OpenAPI; target deployment remains environment-specific. |
 | FinancialReports provider | Implemented | Full v1 identity/fact/provenance schema, pagination, processing state, retry, cache, stale mode, and JSON fallback. |
 | LangGraph agent | Implemented | Data readiness, deterministic planning, multi-tool research, contradiction checks, and LLM fallback. |
 | Langfuse tracing | Optional | Controlled by env vars. |
