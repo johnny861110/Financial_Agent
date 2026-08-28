@@ -57,6 +57,14 @@ curl -X POST http://127.0.0.1:8000/api/agent/research \
 The response includes the research plan, findings, evidence, risks,
 contradictions, data gaps, watch items, verdict, and confidence score.
 
+The deterministic snapshot endpoint also returns `data_context` with schema
+version, readiness status, quality, freshness, field states, and failed
+validation records:
+
+```bash
+curl http://127.0.0.1:8000/api/financials/3661/2025Q1
+```
+
 ## Choose a Data Provider
 
 Local JSON is the default:
@@ -93,7 +101,7 @@ curl http://127.0.0.1:8000/api/data/jobs/JOB_ID
 
 ```bash
 uv run black --check app tests ui streamlit_app.py
-uv run python -m compileall -q app ui
+uv run python -m compileall -q app tests ui
 uv run mypy app/data app/agents app/api app/services app/models/agent_models.py ui/api_client.py
 uv run pytest
 git -c core.whitespace=cr-at-eol diff --check

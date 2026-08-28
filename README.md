@@ -79,7 +79,8 @@ The implemented system has three documented views:
    routes call deterministic services while Agent routes call LangGraph.
 2. **Data layer:** services use the `DataLoader` facade over either local JSON
    or FinancialReports, with typed retry, cache, fallback, quality, freshness,
-   and evidence behavior.
+   and evidence behavior. `CanonicalFinancialContext` preserves facts, units,
+   absence states, validation, metrics, and evidence for migrated services.
 3. **Agent layer:** intent routing flows through data readiness, research
    planning, typed tool execution, evidence/contradiction review, and report
    composition.
@@ -458,6 +459,12 @@ Remote `404` and `422` responses are not replaced with local data. Transport
 and server failures may use local JSON fallback; a previously cached remote
 record is returned as stale when available.
 
+`DataLoader.load_context()` exposes the complete service-facing filing context.
+Snapshot and trend analysis already use it, so missing and `not_applicable`
+inputs do not become zero and producer ratio metrics retain their unit meaning.
+Other deterministic services remain on the compatibility snapshot while their
+field and validation requirements are migrated incrementally.
+
 ```bash
 curl http://localhost:8000/api/data/3661/2025Q1/status
 curl http://localhost:8000/api/data/3661/2025Q1/record
@@ -506,8 +513,9 @@ uv run black --check app tests ui streamlit_app.py
 | Area | Status | Notes |
 | --- | --- | --- |
 | JSON financial data loading | Implemented | Local `*_enhanced.json` files. |
-| Snapshot analysis | Implemented | Uses deterministic service logic. |
-| Trend analysis | Implemented | Uses all available periods for a stock. |
+| Canonical financial context | Phase 1 implemented | Indexed facts, units, field states, validation, metrics, freshness, and evidence with legacy JSON compatibility. |
+| Snapshot analysis | Context-aware | Uses canonical facts/metrics and exposes field states plus failed validation. |
+| Trend analysis | Context-aware | Uses available canonical observations without manufacturing zero for missing derived metrics. |
 | Peer comparison | Implemented | Requires at least two loaded companies. |
 | Management score | Implemented | Input-driven governance scoring. |
 | Earnings quality | Implemented with source-data constraints | Returns `422` when required fields are missing. |

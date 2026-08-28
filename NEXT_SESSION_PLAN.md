@@ -4,7 +4,7 @@
 
 **Milestone:** FinancialReports v1 producer-consumer integration complete
 
-**Next milestone:** Schema-aware analysis and filing-text retrieval
+**Next milestone:** Complete schema-aware analysis and filing-text retrieval
 
 ## 1. Handoff Objective
 
@@ -16,7 +16,7 @@ most rich fields in `SnapshotRecord`.
 Phase A merge and local deployment validation are complete. The immediate goals
 are now:
 
-1. Replace snapshot-only analysis inputs with a canonical financial context.
+1. Continue migrating services onto the implemented canonical financial context.
 2. Make tool planning and execution respect units, availability, validation,
    freshness, and evidence coverage.
 3. Add question-directed filing-text retrieval with traceable citations.
@@ -28,10 +28,10 @@ are now:
 
 - Repository: `johnny861110/Financial_Agent`
 - Local path: `/mnt/c/Users/johnn/GITHUB_REPO/Financial_Agent`
-- Main: `58a4de118f91145a9d400c6a27f84dcba60114d7`
-- Pull request: <https://github.com/johnny861110/Financial_Agent/pull/1>
-- PR state at handoff: merged on 2026-08-28
-- Worktree at handoff: clean before the closure-document update
+- Phase A closure main: `82bf6f4a7b2c69fce6dabadbaa6fa1f488f451c0`
+- Integration PR: <https://github.com/johnny861110/Financial_Agent/pull/1>
+- Closure-document PR: <https://github.com/johnny861110/Financial_Agent/pull/2>
+- Both PRs merged on 2026-08-28
 
 Feature commits before this handoff:
 
@@ -118,7 +118,8 @@ FinancialReports 1.0.0
 
 ## 5. Current Data Utilization Gap
 
-Transport coverage is high, but analysis utilization is incomplete.
+Transport coverage is high. Snapshot and Trend now consume the canonical
+context, but analysis utilization remains incomplete elsewhere.
 
 | FinancialReports data | Transported | Actively used |
 | --- | --- | --- |
@@ -127,7 +128,7 @@ Transport coverage is high, but analysis utilization is incomplete.
 | Canonical facts and units | Yes | Facts mainly become evidence |
 | Fact evidence text | Yes | Yes, bounded fact-level excerpts |
 | Quality, missing fields, freshness | Yes | Yes |
-| Field availability states | Yes | Not directly in planning/formulas |
+| Field availability states | Yes | Used by Snapshot/Trend; not yet by tool planning |
 | Validation records | Yes | Not used as rule-specific gates |
 | Metric records and formulas | Yes | Not used by analysis services |
 | Producer YoY/QoQ comparisons | Yes | Not used by trend analysis |
@@ -138,9 +139,9 @@ Transport coverage is high, but analysis utilization is incomplete.
 | Batch query | Producer only | Not consumed |
 | Schema discovery | Producer only | No startup negotiation/drift check |
 
-The existing deterministic services still primarily call
-`DataLoader.load_snapshot()`. This reduces rich producer states to the legacy
-`FinancialSnapshot` and can make a missing derived ratio look like `0.0`.
+Snapshot and Trend call `DataLoader.load_context()` and no longer manufacture
+zero for an unavailable derived input. The remaining deterministic services
+still primarily call `load_snapshot()` and require incremental migration.
 
 ## 6. Next Milestone Design
 
@@ -162,8 +163,7 @@ Acceptance criteria:
 
 ### Phase B: Canonical Financial Context
 
-Introduce a service-facing model, tentatively named
-`CanonicalFinancialContext`, containing:
+The service-facing `CanonicalFinancialContext` is implemented with:
 
 - filing identity and lifecycle state;
 - canonical facts indexed by field;
@@ -187,8 +187,8 @@ evidence_for(fields, limit)
 Migrate services incrementally. Do not rewrite every service in one commit.
 Recommended order:
 
-1. Snapshot service
-2. Trend service
+1. Snapshot service - completed
+2. Trend service - completed
 3. Earnings quality and EWS
 4. ROIC/WACC and capital allocation
 5. Peer and factor services
@@ -309,6 +309,8 @@ git fsck --full --strict
 npx gitnexus analyze --force
 ```
 
+Canonical-context phase baseline: 44 pytest tests passed.
+
 ### FinancialReports
 
 Use the repository's Ruff, mypy, pytest, compile, OpenAPI drift, and Python
@@ -365,11 +367,11 @@ Stop all temporary servers before ending the session.
 Use this prompt at the start of the next session:
 
 ```text
-Read NEXT_SESSION_PLAN.md first. Verify both repositories, all three PRs, local
+Read NEXT_SESSION_PLAN.md first. Verify both repositories, all four merged PRs, local
 and remote SHAs, and GitNexus financial-platform status. Do not reimplement the
 existing FinancialReports provider or API. Start with Phase A merge/deployment
 readiness; if merges are not authorized, begin Phase B by designing and impact-
-analyzing CanonicalFinancialContext. Preserve the FinancialReports untracked
+continuing the CanonicalFinancialContext service migrations. Preserve the FinancialReports untracked
 paths listed in the handoff. Implement, test, commit, and update the handoff as
 each phase is completed.
 ```

@@ -17,6 +17,8 @@ canonical evidence belong to FinancialReports.
 
 - Support local enhanced JSON and FinancialReports API v1 providers.
 - Normalize both sources into one `SnapshotRecord` contract.
+- Build a `CanonicalFinancialContext` for deterministic services without
+  discarding units, absence states, validation, or evidence.
 - Expose source, schema version, filing identity, freshness, quality, lifecycle
   status, canonical facts, availability, metrics, validations, comparisons,
   source documents, pipeline state, events, and evidence.
@@ -33,10 +35,17 @@ canonical evidence belong to FinancialReports.
 - Management quality from caller-supplied governance inputs.
 - Earnings quality, ROIC/WACC, capital allocation, and early warnings.
 - Structured missing-field errors when a calculation lacks required facts.
+- Snapshot and trend analysis use canonical values and producer metrics; an
+  unavailable derived input is not converted to numeric zero.
 
 Financial formulas are deterministic Python code. Assumptions such as beta,
 tax rate, risk-free rate, or caller-supplied governance values must be returned
 as assumptions rather than evidence.
+
+Snapshot and trend are the first migrated context consumers. Earnings quality,
+EWS, ROIC/WACC, capital allocation, peer, and factor services remain on the
+backward-compatible snapshot facade until their field/unit contracts are
+declared and tested.
 
 ### Agent Research
 
@@ -110,14 +119,23 @@ are detailed in `MODIFICATION_PLAN.md`; a fixture is maintained at
 - Deploy FinancialReports to a named target and validate it with fallback disabled.
 - Move the in-process refresh job registry to durable job infrastructure.
 
-### Priority 2: Production Controls
+### Priority 2: Canonical Context Migration
+
+- Migrate earnings quality and EWS to explicit required fields and units.
+- Migrate ROIC/WACC, capital allocation, peer, and factor analysis.
+- Add deterministic tool eligibility from field state, validation, quality,
+  freshness, and sector support.
+- Retrieve bounded filing text for narrative questions and return page/chunk
+  citations.
+
+### Priority 3: Production Controls
 
 - Add authentication, authorization, rate limits, audit logs, and request IDs.
 - Move cache and workflow/job state to shared durable infrastructure.
 - Add metrics for source latency, fallback rate, stale reads, tool errors, and
   evidence coverage.
 
-### Priority 3: Research Depth
+### Priority 4: Research Depth
 
 - Add cash-flow statement details and audited market/macro inputs.
 - Add transcript and guidance ingestion before enabling their Agent tools.

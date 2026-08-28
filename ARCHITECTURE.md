@@ -76,6 +76,7 @@ flowchart TD
     Local[JsonFinancialDataProvider]
     RemoteAPI[FinancialReports HTTP API v1]
     Record[SnapshotRecord]
+    Context[CanonicalFinancialContext]
     Ready[DataReadinessService]
 
     Caller --> Loader
@@ -91,7 +92,9 @@ flowchart TD
     Remote <--> Cache
     Remote --> Record
     Local --> Record
-    Record -->|snapshot + quality + freshness + evidence| Caller
+    Record --> Context
+    Context -->|facts + units + availability + validation| Caller
+    Record -->|backward-compatible snapshot| Loader
 ```
 
 ### Provider Contract
@@ -112,6 +115,23 @@ availability, evidence, metric records, validations, comparisons, insight
 cards, source documents, pipeline state, events, and lifecycle status.
 The legacy `DataLoader` remains as a facade so analysis services keep a stable
 interface while the source changes.
+
+`DataLoader.load_context()` builds a `CanonicalFinancialContext` that indexes
+facts, units, absence states, metrics, validation, freshness, and evidence.
+Snapshot and trend services consume this context; the remaining analysis
+services still use the compatibility snapshot and are migrated incrementally.
+
+### Canonical Context Rules
+
+- `required_fact()` fails with a typed field-state error instead of returning a
+  fabricated value.
+- `optional_value()` prefers canonical facts and falls back to legacy snapshot
+  fields only when the provider marks the field present.
+- Unit mismatches fail before financial formulas run.
+- Producer ratio metrics are normalized to the percent scale expected by the
+  existing public financial endpoints.
+- Snapshot responses expose field states and failed validation records.
+- Trend calculations omit unavailable observations instead of inserting zero.
 
 ### Fallback and Status Rules
 
