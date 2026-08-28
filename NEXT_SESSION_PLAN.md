@@ -17,12 +17,14 @@ migrated onto `DataLoader.load_context()`. PR #6 (branch
 `refactor/roic-wacc-capital-allocation-canonical-context`, commits `2ef7e0b`
 roic, `194c1fe` capital, `3bdace0` docs) was merged as `c1e0293`.
 
-Same day, later still: `PeerService` and `FactorService` are migrated too,
-on local branch `refactor/peer-factor-canonical-context` (commits `bcd3865`
-peers, `ac98562` factors), gate-verified (70 pytest tests,
-mypy/black/compileall/whitespace/fsck clean, GitNexus re-indexed at 1,664
-nodes / 2,869 edges / 0 import cycles). **This completes Phase B's entire
-service migration order** (Snapshot, Trend, EarningsQuality/EWS,
+Same day, later still: `PeerService` and `FactorService` are migrated too.
+PR #7 (branch `refactor/peer-factor-canonical-context`, commits `bcd3865`
+peers, `ac98562` factors, `6cbd744` docs) was merged as `46247ef`; local and
+remote `main` are synchronized (`0/0` ahead/behind) and the feature branch
+was deleted locally and remotely. Gates were green before merge (70 pytest
+tests, mypy/black/compileall/whitespace/fsck clean, GitNexus re-indexed at
+1,664 nodes / 2,869 edges / 0 import cycles). **This completes Phase B's
+entire service migration order** (Snapshot, Trend, EarningsQuality/EWS,
 ROIC-WACC/CapitalAllocation, Peer/Factor — all five items done). The next
 session should start Phase C (schema-aware tool contracts) — see the
 rewritten "Immediate next work" below.
@@ -58,6 +60,8 @@ are now:
   merged as `3420e9d` on 2026-08-28
 - ROIC-WACC/CapitalAllocation migration PR: <https://github.com/johnny861110/Financial_Agent/pull/6>,
   merged as `c1e0293` on 2026-08-28
+- Peer/Factor migration PR (completes Phase B): <https://github.com/johnny861110/Financial_Agent/pull/7>,
+  merged as `46247ef` on 2026-08-28
 
 The implementation SHA intentionally identifies the code milestone before this
 handoff-only PR. At session start, use `git rev-parse HEAD origin/main` to read
@@ -259,10 +263,7 @@ Recommended order:
 2. Trend service - completed
 3. Earnings quality and EWS - completed (PR #5, merged as `3420e9d`)
 4. ROIC/WACC and capital allocation - completed (PR #6, merged as `c1e0293`)
-5. Peer and factor services - completed (branch
-   `refactor/peer-factor-canonical-context`, commits `bcd3865` peers,
-   `ac98562` factors; see top-of-file session update for PR/merge SHA once
-   merged)
+5. Peer and factor services - completed (PR #7, merged as `46247ef`)
 
 **Phase B's service migration order is now fully complete.** All eight
 deterministic services (Snapshot, Trend, EarningsQuality, EWS, ROIC-WACC,
@@ -433,10 +434,10 @@ After the ROIC-WACC/CapitalAllocation migration (PR #6, merged as `c1e0293`):
 62 pytest tests passed, 27 source files passed mypy, 61 files passed Black,
 and compileall/whitespace-diff/fsck checks passed the same way.
 
-After the Peer/Factor migration (branch
-`refactor/peer-factor-canonical-context`, completing Phase B): 70 pytest
-tests passed, 27 source files passed mypy, 63 files passed Black, and
-compileall/whitespace-diff/fsck checks passed the same way.
+After the Peer/Factor migration (PR #7, merged as `46247ef`, completing
+Phase B): 70 pytest tests passed, 27 source files passed mypy, 63 files
+passed Black, and compileall/whitespace-diff/fsck checks passed the same
+way.
 
 ### FinancialReports
 
@@ -497,9 +498,9 @@ Use this prompt at the start of the next session:
 Read NEXT_SESSION_PLAN.md first. Verify both repositories, all merged PRs, local
 and remote SHAs, and GitNexus financial-platform status. Financial_Agent has
 merged PR #5 (EarningsQuality/EWS, at commit 3420e9d), PR #6
-(ROIC-WACC/CapitalAllocation, at commit c1e0293), and a Peer/Factor migration
-that completes Phase B's entire service migration order (see the top-of-file
-session update for its PR/merge SHA once merged). Do not reimplement the
+(ROIC-WACC/CapitalAllocation, at commit c1e0293), and PR #7 (Peer/Factor, at
+commit 46247ef), which completes Phase B's entire service migration order.
+Do not reimplement the
 FinancialReports provider, API, SnapshotRecord mapping, or
 CanonicalFinancialContext, and do not re-migrate any of the eight services
 already on DataLoader.load_context(). Start Phase C (schema-aware tool
