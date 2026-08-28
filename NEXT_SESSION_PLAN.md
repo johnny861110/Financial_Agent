@@ -1,20 +1,25 @@
 # Next Session Handoff Plan
 
-**Prepared:** 2026-08-28 (updated same day: EarningsQuality/EWS migration)
+**Prepared:** 2026-08-28 (updated same day: EarningsQuality/EWS, then
+ROIC-WACC/CapitalAllocation migrations)
 
 **Milestone:** Canonical financial context foundation and Snapshot/Trend migration complete
 
 **Next milestone:** Complete schema-aware analysis and filing-text retrieval
 
 **Session update (2026-08-28, same day):** `EarningsQualityService` and
-`EarlyWarningService` are migrated onto `DataLoader.load_context()`. Gates
-were green before merge (54 pytest tests, mypy/black/compileall/whitespace/fsck
-clean, GitNexus re-indexed at 1,612 nodes / 2,699 edges / 0 import cycles).
-PR #5 (branch `refactor/earnings-quality-ews-canonical-context`, commits
-`83ac9a7` quality, `57d989c` ews, `41fafb5` docs) was merged as `3420e9d`;
-local and remote `main` are synchronized (`0/0` ahead/behind) and the feature
-branch was deleted locally and remotely. See the updated Phase B status and
-"Immediate next work" below — the next session should start there.
+`EarlyWarningService` are migrated onto `DataLoader.load_context()`. PR #5
+(branch `refactor/earnings-quality-ews-canonical-context`, commits `83ac9a7`
+quality, `57d989c` ews, `41fafb5` docs) was merged as `3420e9d`.
+
+Same day, later: `ROICWACCService` and `CapitalAllocationService` are also
+migrated onto `DataLoader.load_context()` (branch
+`refactor/roic-wacc-capital-allocation-canonical-context`, commits `2ef7e0b`
+roic, `194c1fe` capital). Gates were green before merge (62 pytest tests,
+mypy/black/compileall/whitespace/fsck clean, GitNexus re-indexed at 1,630
+nodes / 2,767 edges / 0 import cycles). See the updated Phase B status and
+"Immediate next work" below — the next session should start there (peer and
+factor services).
 
 ## 1. Handoff Objective
 
@@ -155,12 +160,12 @@ context, but analysis utilization remains incomplete elsewhere.
 | --- | --- | --- |
 | Filing identity | Yes | Partially |
 | Normalized snapshot | Yes | Yes |
-| Canonical facts and units | Yes | Snapshot/Trend/EarningsQuality/EWS use them; ROIC/WACC, capital allocation, peer, factor do not |
+| Canonical facts and units | Yes | Snapshot/Trend/EarningsQuality/EWS/ROIC-WACC use them via `load_context()`; CapitalAllocationService only needs the existence check (its figures are caller-supplied assumptions); peer/factor do not yet |
 | Fact evidence text | Yes | Yes, bounded fact-level excerpts |
 | Quality, missing fields, freshness | Yes | Yes |
-| Field availability states | Yes | Used by Snapshot/Trend/EarningsQuality/EWS; not yet by tool planning |
-| Validation records | Yes | Surfaced as red flags (EarningsQuality) / signals (EWS) for blocking (error-severity) failures on required fields; not yet used as planner/executor gates (Phase C) |
-| Metric records and formulas | Yes | Snapshot/Trend/EWS use producer ratios when available |
+| Field availability states | Yes | Used by Snapshot/Trend/EarningsQuality/EWS/ROIC-WACC; not yet by tool planning |
+| Validation records | Yes | Surfaced as red flags (EarningsQuality) / signals (EWS) / commentary notes (ROIC-WACC) for blocking (error-severity) failures on required fields; not yet used as planner/executor gates (Phase C) |
+| Metric records and formulas | Yes | Snapshot/Trend/EWS/ROIC-WACC use producer ratios when available |
 | Producer YoY/QoQ comparisons | Yes | Not used by trend analysis |
 | Insight cards | Yes | Not used by planner/composer |
 | Source documents | Yes | Not exposed as navigable citations |
@@ -245,7 +250,8 @@ Recommended order:
 1. Snapshot service - completed
 2. Trend service - completed
 3. Earnings quality and EWS - completed (PR #5, merged as `3420e9d`)
-4. ROIC/WACC and capital allocation
+4. ROIC/WACC and capital allocation - completed (commits `2ef7e0b` roic,
+   `194c1fe` capital; see top-of-file session update for PR/merge SHA)
 5. Peer and factor services
 
 Acceptance criteria:
@@ -257,23 +263,31 @@ Acceptance criteria:
 
 Immediate next work (first task for the next session):
 
-1. Run GitNexus impact analysis on `ROICWACCService` and
-   `CapitalAllocationService` (same pattern used for EarningsQuality/EWS:
-   `mcp__gitnexus__impact` upstream on each class before editing).
-2. Add explicit required fields, units, and blocking validation rules for
-   both, following `EARNINGS_QUALITY_REQUIRED_FIELDS`/`EWS_REQUIRED_FIELDS`
-   and the shared `required_context_values()` helper in `app/core/utils.py`
-   (do not reimplement it).
-3. Migrate both services to `load_context()` without changing their public
-   API. Note `ROICWACCService` already raises `InsufficientDataError` via a
-   different path (see `tests/test_services.py::test_roic_wacc_reports_missing_fields`)
-   — confirm the migrated version preserves that exact exception/field-name
-   contract.
-4. Add complete, missing, `not_applicable`, unit-mismatch, and failed-validation
-   tests (same 5-category shape as `tests/test_earnings_quality_context.py`
-   and `tests/test_ews_context.py` — reuse `tests/helpers.py`'s
-   `RecordProvider`/`make_record`/`make_snapshot` rather than duplicating them).
-5. Commit that pair before starting peer and factor services.
+1. Run GitNexus impact analysis on `PeerService` and `FactorService`
+   (`mcp__gitnexus__impact` upstream on each class before editing — the
+   same LOW-risk pattern held for all four services migrated so far).
+2. Read `app/services/peer_service.py` and `app/services/factor_service.py`
+   first: `PeerService.compare_peers` loads multiple stocks' snapshots for
+   one period (a different shape than the single-stock-multi-period pattern
+   Trend/EarningsQuality/EWS used), and `FactorService` takes an optional
+   peer list too — check whether either already returns `None`/skips instead
+   of raising on missing data before deciding whether they need
+   `required_context_values()` at all, or just a `load_context()` swap like
+   `CapitalAllocationService` got (no required-field contract to preserve).
+3. Migrate both to `load_context()`/`load_multiple_contexts()` without
+   changing their public API, reusing `required_context_values()`
+   (`app/core/utils.py`) only if the service actually raises
+   `InsufficientDataError` today — don't add a new required-field gate a
+   service didn't have before.
+4. Add tests matching whatever categories actually apply (see
+   `tests/test_capital_allocation_context.py` for the precedent of a lighter
+   test file when a service has no required-field/unit/validation surface;
+   `tests/test_roic_wacc_context.py` for the full 5-category shape when it
+   does). Reuse `tests/helpers.py`'s `RecordProvider`/`make_record`/
+   `make_snapshot` rather than duplicating them.
+5. Commit as a pair, run full gates, refresh GitNexus, update this handoff,
+   PR, merge. This closes out Phase B's service migration order — Phase C
+   (schema-aware tool contracts) is next after that.
 
 ### Phase C: Schema-Aware Tool Contracts
 
@@ -388,10 +402,14 @@ npx gitnexus analyze --force
 Canonical-context phase baseline: 44 pytest tests passed, 27 source files passed
 mypy, 56 files passed Black, and compileall/diff checks passed.
 
-After the EarningsQuality/EWS migration (local branch, unmerged): 54 pytest
-tests passed, 27 source files passed mypy, 59 files passed Black, and
+After the EarningsQuality/EWS migration (PR #5, merged as `3420e9d`): 54
+pytest tests passed, 27 source files passed mypy, 59 files passed Black, and
 compileall/whitespace-diff/`git fsck --full --strict` checks passed (fsck
 reports only pre-existing harmless dangling objects, no corruption).
+
+After the ROIC-WACC/CapitalAllocation migration (same day): 62 pytest tests
+passed, 27 source files passed mypy, 61 files passed Black, and
+compileall/whitespace-diff/fsck checks passed the same way.
 
 ### FinancialReports
 
@@ -450,18 +468,24 @@ Use this prompt at the start of the next session:
 
 ```text
 Read NEXT_SESSION_PLAN.md first. Verify both repositories, all merged PRs, local
-and remote SHAs, and GitNexus financial-platform status. Financial_Agent now has
-four merged PRs (the original three plus PR #5, which migrated
-EarningsQualityService/EarlyWarningService onto canonical financial context, at
-commit 3420e9d). Do not reimplement the FinancialReports provider, API,
-SnapshotRecord mapping, or CanonicalFinancialContext. Start by impact-analyzing
-ROICWACCService and CapitalAllocationService, then migrate them to
-DataLoader.load_context() with field/unit/validation tests, reusing
-`required_context_values()` (app/core/utils.py) and the test helpers in
-tests/helpers.py. Preserve the FinancialReports untracked paths listed in the
-handoff. Use small commits, run both focused and full gates, refresh GitNexus,
-update this handoff, merge through PR, and return both repos to synchronized
-main. Confirm with the user before any push/PR/merge step.
+and remote SHAs, and GitNexus financial-platform status. Financial_Agent has
+merged PR #5 (EarningsQuality/EWS onto canonical financial context, at commit
+3420e9d) plus a follow-up ROIC-WACC/CapitalAllocation migration merged the same
+day (see the top-of-file session update for its PR/merge SHA) -- read that
+section for the exact current commit. Do not reimplement the FinancialReports
+provider, API, SnapshotRecord mapping, or CanonicalFinancialContext. Start by
+impact-analyzing PeerService and FactorService, read their current
+implementations first (compare_peers takes multiple stock codes for one
+period, a different shape than the other migrated services), then migrate
+whichever parts of their contract actually need it to
+DataLoader.load_context()/load_multiple_contexts() with field/unit/validation
+tests where applicable, reusing `required_context_values()`
+(app/core/utils.py) and the test helpers in tests/helpers.py -- don't invent a
+required-field gate a service didn't already have. Preserve the
+FinancialReports untracked paths listed in the handoff. Use small commits, run
+both focused and full gates, refresh GitNexus, update this handoff, merge
+through PR, and return both repos to synchronized main. Confirm with the user
+before any push/PR/merge step.
 ```
 
 ## 11. Definition of the Next Milestone Done
