@@ -2,16 +2,16 @@
 
 **Prepared:** 2026-08-28
 
-**Milestone:** FinancialReports v1 producer-consumer integration complete
+**Milestone:** Canonical financial context foundation and Snapshot/Trend migration complete
 
 **Next milestone:** Complete schema-aware analysis and filing-text retrieval
 
 ## 1. Handoff Objective
 
-Continue from the completed cross-repository integration without rebuilding the
-provider or API boundary. The next session should make Financial Agent actively
-use FinancialReports rich schema and filing evidence, instead of only preserving
-most rich fields in `SnapshotRecord`.
+Continue from the completed cross-repository integration and canonical-context
+foundation without rebuilding the provider, API boundary, or context accessors.
+The next session should migrate the remaining analysis services and make Agent
+tool eligibility use FinancialReports schema metadata.
 
 Phase A merge and local deployment validation are complete. The immediate goals
 are now:
@@ -28,10 +28,15 @@ are now:
 
 - Repository: `johnny861110/Financial_Agent`
 - Local path: `/mnt/c/Users/johnn/GITHUB_REPO/Financial_Agent`
-- Phase A closure main: `82bf6f4a7b2c69fce6dabadbaa6fa1f488f451c0`
+- Canonical-context implementation merge: `fabb4ea4ed7bdf731896b419ed5bd1fdf6e90469`
 - Integration PR: <https://github.com/johnny861110/Financial_Agent/pull/1>
 - Closure-document PR: <https://github.com/johnny861110/Financial_Agent/pull/2>
-- Both PRs merged on 2026-08-28
+- Canonical-context PR: <https://github.com/johnny861110/Financial_Agent/pull/3>
+- All three PRs merged on 2026-08-28
+
+The implementation SHA intentionally identifies the code milestone before this
+handoff-only PR. At session start, use `git rev-parse HEAD origin/main` to read
+the final handoff merge SHA.
 
 Feature commits before this handoff:
 
@@ -41,23 +46,28 @@ cddba2e feat(data): consume complete FinancialReports v1 schema
 857f45f docs: document complete FinancialReports integration
 e2be6d1 docs: add next-session handoff plan
 7699d2f fix(ui): avoid eager page imports
+b2c9dcc feat(data): add canonical financial context
+823e8aa docs: document canonical context phase
 ```
 
 ### FinancialReports
 
 - Repository: `johnny861110/FinancialReports`
 - Local path: `/mnt/c/Users/johnn/GITHUB_REPO/FinancialReports`
-- Main: `8ba3cfcbae30f38786661d110b0dc8e1ed9c831d`
-- Baseline branch: `fix/finmind-bank-support`
-- Baseline HEAD: `6db6a84163f61d5faa74fc5a2dd37a8023ad0290`
-- API branch: `feat/versioned-schema-api`
-- API HEAD: `c61d8ff62610b7c3a493108fc138c983c17d399b`
+- Current main: `e8678c5b419987237dcf4153ea5fa563542d87d2`
 - Baseline PR: <https://github.com/johnny861110/FinancialReports/pull/1>
 - API PR: <https://github.com/johnny861110/FinancialReports/pull/2>
-- PR state at handoff: both merged on 2026-08-28
+- Documentation-sync PR: <https://github.com/johnny861110/FinancialReports/pull/3>
+- All three PRs merged on 2026-08-28
 
-PR #2 was retargeted to `main`, synchronized with the PR #1 merge commit, and
-passed the Python 3.10, 3.11, and 3.12 matrix before merge.
+PR #3 passed the Python 3.10, 3.11, and 3.12 matrix. All temporary producer
+branches were deleted locally and remotely.
+
+At implementation closure, both repositories were on `main`, local HEAD matched
+`origin/main`, ahead/behind was `0/0`, and the remotes contained only `main`.
+GitNexus was current on both merge commits: Financial Agent had 1,546 nodes,
+2,497 edges, 37 clusters, and 107 flows; FinancialReports had 1,568 nodes,
+2,745 edges, 37 clusters, and 83 flows.
 
 Do not delete or commit these pre-existing untracked FinancialReports paths
 without explicit user instruction:
@@ -81,6 +91,9 @@ Completed on 2026-08-28:
 6. Capabilities, rich record, stale readiness, and financial analysis passed for
    `2330/2025Q1` using the existing FinancialReports database.
 7. Financial_Agent PR #1 merged as `58a4de1`.
+8. Financial_Agent closure PR #2 merged as `82bf6f4`.
+9. Financial Agent canonical-context PR #3 merged as `fabb4ea`.
+10. FinancialReports documentation-sync PR #3 merged as `e8678c5`.
 
 No production deployment target or credentials were provided. Keep
 `DATA_PROVIDER=json` as the repository default until a target environment passes
@@ -105,6 +118,10 @@ Do not reimplement these capabilities:
 - Agent readiness, deterministic planning, typed tool execution, contradiction
   review, evidence verification, and structured report composition.
 - Fact-level evidence transfer into Agent state.
+- `CanonicalFinancialContext` accessors for facts, units, field states,
+  producer metrics, validation failures, freshness, and evidence.
+- Snapshot and Trend migration onto `DataLoader.load_context()`.
+- Missing-safe ratio and trend behavior plus typed unit mismatch failures.
 
 The cross-repository smoke test already proved this path:
 
@@ -112,8 +129,9 @@ The cross-repository smoke test already proved this path:
 FinancialReports 1.0.0
     -> FinancialReportsProvider
     -> SnapshotRecord
-    -> readiness and Agent evidence
-    -> deterministic financial endpoint
+    -> CanonicalFinancialContext
+    -> Snapshot / Trend
+    -> deterministic financial endpoint and Agent evidence
 ```
 
 ## 5. Current Data Utilization Gap
@@ -125,12 +143,12 @@ context, but analysis utilization remains incomplete elsewhere.
 | --- | --- | --- |
 | Filing identity | Yes | Partially |
 | Normalized snapshot | Yes | Yes |
-| Canonical facts and units | Yes | Facts mainly become evidence |
+| Canonical facts and units | Yes | Snapshot/Trend use them; remaining services do not |
 | Fact evidence text | Yes | Yes, bounded fact-level excerpts |
 | Quality, missing fields, freshness | Yes | Yes |
 | Field availability states | Yes | Used by Snapshot/Trend; not yet by tool planning |
 | Validation records | Yes | Not used as rule-specific gates |
-| Metric records and formulas | Yes | Not used by analysis services |
+| Metric records and formulas | Yes | Snapshot/Trend use producer ratios when available |
 | Producer YoY/QoQ comparisons | Yes | Not used by trend analysis |
 | Insight cards | Yes | Not used by planner/composer |
 | Source documents | Yes | Not exposed as navigable citations |
@@ -144,6 +162,26 @@ zero for an unavailable derived input. The remaining deterministic services
 still primarily call `load_snapshot()` and require incremental migration.
 
 ## 6. Next Milestone Design
+
+### Implementation Entry Points
+
+Read these files before editing:
+
+| Responsibility | File |
+| --- | --- |
+| Context model and typed errors | `app/data/context.py` |
+| Provider-to-service facade | `app/core/data_loader.py` |
+| Rich transport models | `app/data/models.py` |
+| First migrated services | `app/services/snapshot_service.py`, `app/services/trend_service.py` |
+| Remaining service construction | `app/services/factory.py` |
+| Agent tool contracts/execution | `app/agents/contracts.py`, `app/agents/tools.py` |
+| Planner and report workflow | `app/agents/workflow.py` |
+| Context behavior tests | `tests/test_financial_context.py` |
+| Producer contract fixture | `tests/fixtures/financial_reports_snapshot_v1.json` |
+
+Do not change `FinancialSnapshot` computed properties as the first step. The
+safe migration pattern is to inject `DataLoader`, load a context, declare each
+required field/unit, and retain the public response shape.
 
 ### Phase A: Merge, Deploy, and Pin the Contract (Completed Locally)
 
@@ -174,7 +212,7 @@ The service-facing `CanonicalFinancialContext` is implemented with:
 - evidence and source-document references;
 - producer metrics and comparisons.
 
-Add accessors such as:
+Implemented accessors include:
 
 ```text
 required_fact(field, expected_unit)
@@ -182,6 +220,11 @@ optional_fact(field, expected_unit)
 availability(field)
 failed_validations(fields)
 evidence_for(fields, limit)
+optional_value(field, expected_unit)
+required_value(field, expected_unit)
+metric(name, expected_unit)
+ratio_percent(metric_name, numerator_field, denominator_field)
+field_states(fields)
 ```
 
 Migrate services incrementally. Do not rewrite every service in one commit.
@@ -198,7 +241,17 @@ Acceptance criteria:
 - Missing values cannot silently become numeric zero.
 - `not_applicable` is distinct from missing.
 - Unit mismatch produces a typed error.
-- Every calculated finding records source fact IDs and assumptions.
+- Every newly migrated calculated finding records source fact IDs and assumptions.
+
+Immediate next work:
+
+1. Run GitNexus impact analysis on `EarningsQualityService` and
+   `EarlyWarningService`.
+2. Add explicit required fields, units, and blocking validation rules for both.
+3. Migrate both services to `load_context()` without changing their public API.
+4. Add complete, missing, `not_applicable`, unit-mismatch, and failed-validation
+   tests.
+5. Commit that pair before starting ROIC/WACC and capital allocation.
 
 ### Phase C: Schema-Aware Tool Contracts
 
@@ -281,9 +334,10 @@ Keep future commits reviewable:
 
 ```text
 test(contract): add deployed producer smoke matrix
-feat(data): add canonical financial context
-refactor(snapshot): consume canonical facts and availability
-refactor(trend): use producer comparisons with local fallback
+refactor(quality): consume canonical facts and validation
+refactor(ews): consume canonical facts and validation
+refactor(capital): migrate roic and allocation context
+refactor(peers): migrate peer and factor context
 feat(agent): add schema-aware tool requirements
 feat(data): retrieve bounded filing text context
 feat(agent): cite filing text chunks
@@ -309,7 +363,8 @@ git fsck --full --strict
 npx gitnexus analyze --force
 ```
 
-Canonical-context phase baseline: 44 pytest tests passed.
+Canonical-context phase baseline: 44 pytest tests passed, 27 source files passed
+mypy, 56 files passed Black, and compileall/diff checks passed.
 
 ### FinancialReports
 
@@ -321,7 +376,7 @@ matrix checks. At the handoff milestone the producer baseline was:
 54 source files passed mypy
 Ruff check and format passed
 OpenAPI runtime/artifact drift test passed
-Python 3.10/3.11/3.12 PR matrix passed on baseline PR
+Python 3.10/3.11/3.12 PR matrix passed on API and documentation PRs
 ```
 
 ### Cross-Repository
@@ -367,13 +422,17 @@ Stop all temporary servers before ending the session.
 Use this prompt at the start of the next session:
 
 ```text
-Read NEXT_SESSION_PLAN.md first. Verify both repositories, all four merged PRs, local
-and remote SHAs, and GitNexus financial-platform status. Do not reimplement the
-existing FinancialReports provider or API. Start with Phase A merge/deployment
-readiness; if merges are not authorized, begin Phase B by designing and impact-
-continuing the CanonicalFinancialContext service migrations. Preserve the FinancialReports untracked
-paths listed in the handoff. Implement, test, commit, and update the handoff as
-each phase is completed.
+Read NEXT_SESSION_PLAN.md first. Verify both repositories, all merged PRs, local
+and remote SHAs, and GitNexus financial-platform status. There are three merged
+implementation/documentation PRs in each repository before the handoff-only PR.
+Do not reimplement the
+FinancialReports provider, API, SnapshotRecord mapping, or
+CanonicalFinancialContext. Start by impact-analyzing EarningsQualityService and
+EarlyWarningService, then migrate them to DataLoader.load_context() with
+field/unit/validation tests. Preserve the FinancialReports untracked paths
+listed in the handoff. Use small commits, run both focused and full gates,
+refresh GitNexus, update this handoff, merge through PR, and return both repos
+to synchronized main.
 ```
 
 ## 11. Definition of the Next Milestone Done
