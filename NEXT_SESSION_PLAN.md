@@ -7,13 +7,14 @@
 **Next milestone:** Complete schema-aware analysis and filing-text retrieval
 
 **Session update (2026-08-28, same day):** `EarningsQualityService` and
-`EarlyWarningService` are migrated onto `DataLoader.load_context()` on local
-branch `refactor/earnings-quality-ews-canonical-context` (commits `83ac9a7`,
-`57d989c`), gates green (58 pytest tests, mypy/black/compileall/whitespace/fsck
+`EarlyWarningService` are migrated onto `DataLoader.load_context()`. Gates
+were green before merge (54 pytest tests, mypy/black/compileall/whitespace/fsck
 clean, GitNexus re-indexed at 1,612 nodes / 2,699 edges / 0 import cycles).
-**Not yet pushed or merged** — awaiting explicit user confirmation for the
-push/PR/merge step before the next session starts. See the updated Phase B
-status and "Immediate next work" below.
+PR #5 (branch `refactor/earnings-quality-ews-canonical-context`, commits
+`83ac9a7` quality, `57d989c` ews, `41fafb5` docs) was merged as `3420e9d`;
+local and remote `main` are synchronized (`0/0` ahead/behind) and the feature
+branch was deleted locally and remotely. See the updated Phase B status and
+"Immediate next work" below — the next session should start there.
 
 ## 1. Handoff Objective
 
@@ -42,6 +43,8 @@ are now:
 - Closure-document PR: <https://github.com/johnny861110/Financial_Agent/pull/2>
 - Canonical-context PR: <https://github.com/johnny861110/Financial_Agent/pull/3>
 - All three PRs merged on 2026-08-28
+- EarningsQuality/EWS migration PR: <https://github.com/johnny861110/Financial_Agent/pull/5>,
+  merged as `3420e9d` on 2026-08-28
 
 The implementation SHA intentionally identifies the code milestone before this
 handoff-only PR. At session start, use `git rev-parse HEAD origin/main` to read
@@ -241,8 +244,7 @@ Recommended order:
 
 1. Snapshot service - completed
 2. Trend service - completed
-3. Earnings quality and EWS - completed (local branch
-   `refactor/earnings-quality-ews-canonical-context`, not yet merged)
+3. Earnings quality and EWS - completed (PR #5, merged as `3420e9d`)
 4. ROIC/WACC and capital allocation
 5. Peer and factor services
 
@@ -255,11 +257,6 @@ Acceptance criteria:
 
 Immediate next work (first task for the next session):
 
-0. Before anything else: review local branch
-   `refactor/earnings-quality-ews-canonical-context` (commits `83ac9a7`
-   quality, `57d989c` ews, both gate-verified but unpushed) and get explicit
-   user confirmation to push/open a PR/merge it. Do not infer that
-   authorization from this document alone.
 1. Run GitNexus impact analysis on `ROICWACCService` and
    `CapitalAllocationService` (same pattern used for EarningsQuality/EWS:
    `mcp__gitnexus__impact` upstream on each class before editing).
@@ -453,20 +450,18 @@ Use this prompt at the start of the next session:
 
 ```text
 Read NEXT_SESSION_PLAN.md first. Verify both repositories, all merged PRs, local
-and remote SHAs, and GitNexus financial-platform status. There are three merged
-implementation/documentation PRs in each repository before the handoff-only PR,
-plus a local, unpushed branch `refactor/earnings-quality-ews-canonical-context`
-on Financial_Agent (commits 83ac9a7, 57d989c) migrating EarningsQualityService
-and EarlyWarningService. Confirm with the user before pushing/opening a
-PR/merging that branch. Do not reimplement the FinancialReports provider, API,
-SnapshotRecord mapping, or CanonicalFinancialContext. Next, impact-analyze
+and remote SHAs, and GitNexus financial-platform status. Financial_Agent now has
+four merged PRs (the original three plus PR #5, which migrated
+EarningsQualityService/EarlyWarningService onto canonical financial context, at
+commit 3420e9d). Do not reimplement the FinancialReports provider, API,
+SnapshotRecord mapping, or CanonicalFinancialContext. Start by impact-analyzing
 ROICWACCService and CapitalAllocationService, then migrate them to
 DataLoader.load_context() with field/unit/validation tests, reusing
 `required_context_values()` (app/core/utils.py) and the test helpers in
 tests/helpers.py. Preserve the FinancialReports untracked paths listed in the
 handoff. Use small commits, run both focused and full gates, refresh GitNexus,
 update this handoff, merge through PR, and return both repos to synchronized
-main.
+main. Confirm with the user before any push/PR/merge step.
 ```
 
 ## 11. Definition of the Next Milestone Done
