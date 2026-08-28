@@ -1,8 +1,9 @@
 """Tests for services."""
 
 import pytest
-from app.core import InsufficientDataError
+from app.core import DataLoader, InsufficientDataError
 from app.services import ManagementService, EarningsQualityService, ROICWACCService
+from tests.helpers import RecordProvider, make_record
 
 
 def test_management_service_tenure_scoring():
@@ -58,8 +59,13 @@ def test_earnings_quality_service():
 
 
 def test_roic_wacc_reports_missing_fields():
-    """ROIC/WACC should fail explicitly when required financial fields are missing."""
-    service = ROICWACCService()
+    """ROIC/WACC should fail explicitly when required financial fields are missing.
+
+    Uses an injected provider so the suite stays reproducible on a fresh clone;
+    the repository's data/ directory is gitignored and absent in CI.
+    """
+    record = make_record("2024Q1", snapshot_overrides={"operating_income": None, "equity": None})
+    service = ROICWACCService(DataLoader(RecordProvider({("2330", "2024Q1"): record})))
 
     with pytest.raises(InsufficientDataError) as exc_info:
         service.analyze("2330", "2024Q1")

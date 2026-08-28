@@ -1,0 +1,65 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  gates:
+    name: Gates (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "latest"
+          enable-cache: true
+
+      - name: Set up Python ${{ matrix.python-version }}
+        run: uv python install ${{ matrix.python-version }}
+
+      # --frozen keeps CI pinned to uv.lock so a gate never passes against a
+      # silently-resolved different dependency set than the one developers ran.
+      - name: Install dependencies
+        run: uv sync --extra dev --frozen
+
+      - name: Tests
+        run: uv run pytest -q
+
+      - name: Type check (mypy)
+        run: >
+          uv run mypy
+          app/data app/agents app/api app/services
+          app/models/agent_models.py ui/api_client.py
+
+      - name: Format check (black)
+        run: uv run black --check app tests ui streamlit_app.py
+
+      - name: Byte-compile
+        run: uv run python -m compileall -q app tests ui
+
+  lockfile:
+    name: Lockfile is current
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "latest"
+          enable-cache: true
+
+      # Fails with a useful message when pyproject.toml and uv.lock disagree,
+      # so dependency drift is caught at review time rather than at deploy.
+      - name: Check uv.lock matches pyproject.toml
+        run: uv lock --check

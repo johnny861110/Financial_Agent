@@ -25,9 +25,14 @@ was deleted locally and remotely. Gates were green before merge (70 pytest
 tests, mypy/black/compileall/whitespace/fsck clean, GitNexus re-indexed at
 1,664 nodes / 2,869 edges / 0 import cycles). **This completes Phase B's
 entire service migration order** (Snapshot, Trend, EarningsQuality/EWS,
-ROIC-WACC/CapitalAllocation, Peer/Factor — all five items done). The next
-session should start Phase C (schema-aware tool contracts) — see the
-rewritten "Immediate next work" below.
+ROIC-WACC/CapitalAllocation, Peer/Factor — all five items done).
+
+Finally, CI was added (`.github/workflows/ci.yml`) — the repository had none,
+so PRs #5–#7 all merged on locally-run gates alone. Adding it surfaced two
+tests that silently depended on the gitignored `data/` directory and could
+not pass on a fresh clone; both were made hermetic. See the Phase A checklist
+and the hermeticity note below. The next session should start Phase C
+(schema-aware tool contracts) — see its "Immediate next work" list.
 
 ## 1. Handoff Objective
 
@@ -218,7 +223,12 @@ required field/unit, and retain the public response shape.
 - [x] Lock runtime OpenAPI to the committed producer artifact in tests.
 - [x] Verify capabilities and a real filing across both merged codebases.
 - [x] Expose the producer schema version through capabilities and readiness.
-- [ ] Add a CI smoke job spanning both repositories.
+- [x] Add CI for Financial_Agent's own gates (`.github/workflows/ci.yml`:
+      pytest, mypy, black, compileall across Python 3.10/3.11/3.12, plus a
+      `uv lock --check` job for dependency drift).
+- [ ] Extend CI to a smoke job spanning **both** repositories (needs a
+      FinancialReports server running in the job; the single-repo gate above
+      is the prerequisite, not a replacement).
 - [ ] Deploy to a named production/staging target when one is provided.
 
 Acceptance criteria:
@@ -227,6 +237,18 @@ Acceptance criteria:
 - Producer health reports schema `1.0.0`.
 - Consumer starts with `ALLOW_JSON_FALLBACK=false` in the smoke environment.
 - Contract drift fails CI with a useful message.
+
+Note on test hermeticity (discovered while adding CI): `data/` is gitignored,
+so **no data files are committed**. Any test that constructs a service with a
+default `DataLoader()` silently reads the developer's local `data/` directory
+and will not reproduce on a fresh clone or in CI. Two ROIC/WACC tests had this
+problem and were fixed to inject a provider. When adding tests, inject a
+`RecordProvider` from `tests/helpers.py` rather than relying on `data/`, and
+sanity-check reproducibility with:
+
+```bash
+FINANCIAL_DATA_PATH=/tmp/nonexistent .venv/bin/pytest -q
+```
 
 ### Phase B: Canonical Financial Context
 
@@ -420,7 +442,17 @@ the `financial-platform` group after either repository is re-indexed.
 git -c core.whitespace=cr-at-eol diff --check
 git fsck --full --strict
 npx gitnexus analyze --force
+
+# Reproducibility check -- must stay green, CI has no data/ directory
+FINANCIAL_DATA_PATH=/tmp/nonexistent .venv/bin/pytest -q
 ```
+
+The first four commands now also run in CI (`.github/workflows/ci.yml`) on
+every push and PR to `main`, across Python 3.10/3.11/3.12. Running them
+locally before pushing is still faster than waiting for CI, but CI is now the
+authority. Note CI installs with `uv sync --extra dev --frozen`, so a local
+`.venv` that has drifted from `uv.lock` can disagree with it; `uv lock --check`
+has its own CI job for exactly that reason.
 
 Canonical-context phase baseline: 44 pytest tests passed, 27 source files passed
 mypy, 56 files passed Black, and compileall/diff checks passed.
@@ -513,10 +545,13 @@ than duplicating them. Wire the declaration into app/agents/workflow.py's
 planner so tool eligibility is decided before execution, not only discovered
 after a service raises InsufficientDataError. See Phase C's "Immediate next
 work" list for the full six-step breakdown. Preserve the FinancialReports
-untracked paths listed in the handoff. Use small commits, run both focused
-and full gates, refresh GitNexus, update this handoff, merge through PR, and
-return both repos to synchronized main. Confirm with the user before any
-push/PR/merge step.
+untracked paths listed in the handoff. Financial_Agent now has CI
+(.github/workflows/ci.yml) -- check it is green on any PR before merging, and
+note data/ is gitignored, so inject a RecordProvider from tests/helpers.py in
+new tests rather than relying on local data files. Use small commits, run both
+focused and full gates, refresh GitNexus, update this handoff, merge through
+PR, and return both repos to synchronized main. Confirm with the user before
+any push/PR/merge step.
 ```
 
 ## 11. Definition of the Next Milestone Done
