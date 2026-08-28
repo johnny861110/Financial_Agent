@@ -1,7 +1,10 @@
 """Core utilities and helpers."""
 
-from typing import List, Optional
+from typing import TYPE_CHECKING, Dict, List, Optional
 import statistics
+
+if TYPE_CHECKING:
+    from app.data.context import CanonicalFinancialContext
 
 
 class InsufficientDataError(ValueError):
@@ -32,6 +35,33 @@ def required_float(record: object, field: str, context: str) -> float:
     require_fields(record, [field], context)
     value = getattr(record, field)
     return float(value)
+
+
+def required_context_values(
+    context: "CanonicalFinancialContext",
+    fields: List[str],
+    expected_unit: str,
+    activity: str,
+) -> Dict[str, float]:
+    """
+    Validate that canonical fields are usable (present, correct unit) on a
+    CanonicalFinancialContext, raising the same InsufficientDataError contract
+    as require_fields for missing/null/not_applicable/provider_failure states.
+    """
+    values: Dict[str, float] = {}
+    missing: List[str] = []
+    for field in fields:
+        value = context.optional_value(field, expected_unit)
+        if value is None:
+            missing.append(field)
+        else:
+            values[field] = value
+    if missing:
+        raise InsufficientDataError(
+            f"Insufficient data for {activity}: missing {', '.join(missing)}",
+            missing,
+        )
+    return values
 
 
 def calculate_z_score(value: float, mean: float, std_dev: float) -> float:

@@ -1,10 +1,19 @@
 # Next Session Handoff Plan
 
-**Prepared:** 2026-08-28
+**Prepared:** 2026-08-28 (updated same day: EarningsQuality/EWS migration)
 
 **Milestone:** Canonical financial context foundation and Snapshot/Trend migration complete
 
 **Next milestone:** Complete schema-aware analysis and filing-text retrieval
+
+**Session update (2026-08-28, same day):** `EarningsQualityService` and
+`EarlyWarningService` are migrated onto `DataLoader.load_context()` on local
+branch `refactor/earnings-quality-ews-canonical-context` (commits `83ac9a7`,
+`57d989c`), gates green (58 pytest tests, mypy/black/compileall/whitespace/fsck
+clean, GitNexus re-indexed at 1,612 nodes / 2,699 edges / 0 import cycles).
+**Not yet pushed or merged** — awaiting explicit user confirmation for the
+push/PR/merge step before the next session starts. See the updated Phase B
+status and "Immediate next work" below.
 
 ## 1. Handoff Objective
 
@@ -143,12 +152,12 @@ context, but analysis utilization remains incomplete elsewhere.
 | --- | --- | --- |
 | Filing identity | Yes | Partially |
 | Normalized snapshot | Yes | Yes |
-| Canonical facts and units | Yes | Snapshot/Trend use them; remaining services do not |
+| Canonical facts and units | Yes | Snapshot/Trend/EarningsQuality/EWS use them; ROIC/WACC, capital allocation, peer, factor do not |
 | Fact evidence text | Yes | Yes, bounded fact-level excerpts |
 | Quality, missing fields, freshness | Yes | Yes |
-| Field availability states | Yes | Used by Snapshot/Trend; not yet by tool planning |
-| Validation records | Yes | Not used as rule-specific gates |
-| Metric records and formulas | Yes | Snapshot/Trend use producer ratios when available |
+| Field availability states | Yes | Used by Snapshot/Trend/EarningsQuality/EWS; not yet by tool planning |
+| Validation records | Yes | Surfaced as red flags (EarningsQuality) / signals (EWS) for blocking (error-severity) failures on required fields; not yet used as planner/executor gates (Phase C) |
+| Metric records and formulas | Yes | Snapshot/Trend/EWS use producer ratios when available |
 | Producer YoY/QoQ comparisons | Yes | Not used by trend analysis |
 | Insight cards | Yes | Not used by planner/composer |
 | Source documents | Yes | Not exposed as navigable citations |
@@ -232,7 +241,8 @@ Recommended order:
 
 1. Snapshot service - completed
 2. Trend service - completed
-3. Earnings quality and EWS
+3. Earnings quality and EWS - completed (local branch
+   `refactor/earnings-quality-ews-canonical-context`, not yet merged)
 4. ROIC/WACC and capital allocation
 5. Peer and factor services
 
@@ -243,15 +253,30 @@ Acceptance criteria:
 - Unit mismatch produces a typed error.
 - Every newly migrated calculated finding records source fact IDs and assumptions.
 
-Immediate next work:
+Immediate next work (first task for the next session):
 
-1. Run GitNexus impact analysis on `EarningsQualityService` and
-   `EarlyWarningService`.
-2. Add explicit required fields, units, and blocking validation rules for both.
-3. Migrate both services to `load_context()` without changing their public API.
+0. Before anything else: review local branch
+   `refactor/earnings-quality-ews-canonical-context` (commits `83ac9a7`
+   quality, `57d989c` ews, both gate-verified but unpushed) and get explicit
+   user confirmation to push/open a PR/merge it. Do not infer that
+   authorization from this document alone.
+1. Run GitNexus impact analysis on `ROICWACCService` and
+   `CapitalAllocationService` (same pattern used for EarningsQuality/EWS:
+   `mcp__gitnexus__impact` upstream on each class before editing).
+2. Add explicit required fields, units, and blocking validation rules for
+   both, following `EARNINGS_QUALITY_REQUIRED_FIELDS`/`EWS_REQUIRED_FIELDS`
+   and the shared `required_context_values()` helper in `app/core/utils.py`
+   (do not reimplement it).
+3. Migrate both services to `load_context()` without changing their public
+   API. Note `ROICWACCService` already raises `InsufficientDataError` via a
+   different path (see `tests/test_services.py::test_roic_wacc_reports_missing_fields`)
+   — confirm the migrated version preserves that exact exception/field-name
+   contract.
 4. Add complete, missing, `not_applicable`, unit-mismatch, and failed-validation
-   tests.
-5. Commit that pair before starting ROIC/WACC and capital allocation.
+   tests (same 5-category shape as `tests/test_earnings_quality_context.py`
+   and `tests/test_ews_context.py` — reuse `tests/helpers.py`'s
+   `RecordProvider`/`make_record`/`make_snapshot` rather than duplicating them).
+5. Commit that pair before starting peer and factor services.
 
 ### Phase C: Schema-Aware Tool Contracts
 
@@ -366,6 +391,11 @@ npx gitnexus analyze --force
 Canonical-context phase baseline: 44 pytest tests passed, 27 source files passed
 mypy, 56 files passed Black, and compileall/diff checks passed.
 
+After the EarningsQuality/EWS migration (local branch, unmerged): 54 pytest
+tests passed, 27 source files passed mypy, 59 files passed Black, and
+compileall/whitespace-diff/`git fsck --full --strict` checks passed (fsck
+reports only pre-existing harmless dangling objects, no corruption).
+
 ### FinancialReports
 
 Use the repository's Ruff, mypy, pytest, compile, OpenAPI drift, and Python
@@ -424,15 +454,19 @@ Use this prompt at the start of the next session:
 ```text
 Read NEXT_SESSION_PLAN.md first. Verify both repositories, all merged PRs, local
 and remote SHAs, and GitNexus financial-platform status. There are three merged
-implementation/documentation PRs in each repository before the handoff-only PR.
-Do not reimplement the
-FinancialReports provider, API, SnapshotRecord mapping, or
-CanonicalFinancialContext. Start by impact-analyzing EarningsQualityService and
-EarlyWarningService, then migrate them to DataLoader.load_context() with
-field/unit/validation tests. Preserve the FinancialReports untracked paths
-listed in the handoff. Use small commits, run both focused and full gates,
-refresh GitNexus, update this handoff, merge through PR, and return both repos
-to synchronized main.
+implementation/documentation PRs in each repository before the handoff-only PR,
+plus a local, unpushed branch `refactor/earnings-quality-ews-canonical-context`
+on Financial_Agent (commits 83ac9a7, 57d989c) migrating EarningsQualityService
+and EarlyWarningService. Confirm with the user before pushing/opening a
+PR/merging that branch. Do not reimplement the FinancialReports provider, API,
+SnapshotRecord mapping, or CanonicalFinancialContext. Next, impact-analyze
+ROICWACCService and CapitalAllocationService, then migrate them to
+DataLoader.load_context() with field/unit/validation tests, reusing
+`required_context_values()` (app/core/utils.py) and the test helpers in
+tests/helpers.py. Preserve the FinancialReports untracked paths listed in the
+handoff. Use small commits, run both focused and full gates, refresh GitNexus,
+update this handoff, merge through PR, and return both repos to synchronized
+main.
 ```
 
 ## 11. Definition of the Next Milestone Done
