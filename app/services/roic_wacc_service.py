@@ -1,8 +1,17 @@
 """ROIC vs WACC value creation analysis service."""
 
 from typing import Optional
-from app.models import FinancialSnapshot, ROICWACCAnalysis
-from app.core import DataLoader, get_settings, require_fields, required_float, safe_divide
+from app.models import ROICWACCAnalysis
+from app.core import DataLoader, get_settings, required_context_values, safe_divide
+from app.data import CanonicalFinancialContext
+
+MONEY_UNIT = "TWD_thousands"
+
+ROIC_WACC_REQUIRED_FIELDS = [
+    "operating_income",
+    "equity",
+    "total_liabilities",
+]
 
 
 class ROICWACCService:
@@ -33,12 +42,13 @@ class ROICWACCService:
         Returns:
             ROICWACCAnalysis object or None
         """
-        snapshot = self.data_loader.load_snapshot(stock_code, period)
-        if not snapshot:
+        context = self.data_loader.load_context(stock_code, period)
+        if not context or not context.has_analysis_data:
             return None
-        require_fields(
-            snapshot,
-            ["operating_income", "equity", "total_liabilities"],
+        required_context_values(
+            context,
+            ROIC_WACC_REQUIRED_FIELDS,
+            MONEY_UNIT,
             "ROIC/WACC analysis",
         )
 
@@ -49,21 +59,21 @@ class ROICWACCService:
             tax_rate = self.settings.default_tax_rate
 
         # Calculate ROIC components
-        nopat = self._calculate_nopat(snapshot, tax_rate)
-        invested_capital = self._calculate_invested_capital(snapshot)
+        nopat = self._calculate_nopat(context, tax_rate)
+        invested_capital = self._calculate_invested_capital(context)
         roic = safe_divide(nopat, invested_capital) * 100  # as percentage
 
         # Calculate WACC components
         cost_of_equity = self._calculate_cost_of_equity(market_beta)
 
         if cost_of_debt is None:
-            cost_of_debt = self._estimate_cost_of_debt(snapshot)
+            cost_of_debt = self._estimate_cost_of_debt(context)
 
         after_tax_cost_of_debt = cost_of_debt * (1 - tax_rate)
 
         # Calculate WACC
-        equity = required_float(snapshot, "equity", "WACC calculation")
-        total_liabilities = required_float(snapshot, "total_liabilities", "WACC calculation")
+        equity = context.required_value("equity", MONEY_UNIT)
+        total_liabilities = context.required_value("total_liabilities", MONEY_UNIT)
         total_capital = equity + total_liabilities
         equity_weight = safe_divide(equity, total_capital)
         debt_weight = safe_divide(total_liabilities, total_capital)
@@ -71,7 +81,10 @@ class ROICWACCService:
         wacc = (equity_weight * cost_of_equity + debt_weight * after_tax_cost_of_debt) * 100
 
         # Generate commentary
-        commentary = self._generate_commentary(roic, wacc, snapshot)
+        commentary = self._generate_commentary(roic, wacc, context)
+        validation_notes = self._validation_notes(context, ROIC_WACC_REQUIRED_FIELDS)
+        if validation_notes:
+            commentary = commentary + " " + " ".join(validation_notes)
 
         assumptions = {
             "beta": market_beta,
@@ -94,22 +107,20 @@ class ROICWACCService:
             assumptions=assumptions,
         )
 
-    def _calculate_nopat(self, snapshot: FinancialSnapshot, tax_rate: float) -> float:
+    def _calculate_nopat(self, context: CanonicalFinancialContext, tax_rate: float) -> float:
         """Calculate Net Operating Profit After Tax."""
-        operating_income = required_float(snapshot, "operating_income", "NOPAT calculation")
+        operating_income = context.required_value("operating_income", MONEY_UNIT)
         return operating_income * (1 - tax_rate)
 
-    def _calculate_invested_capital(self, snapshot: FinancialSnapshot) -> float:
+    def _calculate_invested_capital(self, context: CanonicalFinancialContext) -> float:
         """
         Calculate invested capital.
         Approximation: Total Assets - Non-interest-bearing current liabilities
         Simplified: Equity + Total Debt
         """
         # Simplified approach
-        equity = required_float(snapshot, "equity", "invested capital calculation")
-        total_liabilities = required_float(
-            snapshot, "total_liabilities", "invested capital calculation"
-        )
+        equity = context.required_value("equity", MONEY_UNIT)
+        total_liabilities = context.required_value("total_liabilities", MONEY_UNIT)
         return equity + total_liabilities
 
     def _calculate_cost_of_equity(self, beta: float) -> float:
@@ -121,21 +132,30 @@ class ROICWACCService:
         mrp = self.settings.default_market_risk_premium
         return float(rf + beta * mrp)
 
-    def _estimate_cost_of_debt(self, snapshot: FinancialSnapshot) -> float:
+    def _estimate_cost_of_debt(self, context: CanonicalFinancialContext) -> float:
         """
         Estimate pre-tax cost of debt.
         Simple heuristic based on debt ratio.
         """
-        debt_ratio = snapshot.debt_ratio / 100
-
-        # Higher debt ratio = higher cost of debt
-        # Base rate + spread based on leverage
         base_rate = 0.03  # 3%
+
+        # total_assets is not a required field for this analysis (only needed
+        # for this optional heuristic default); if it is unavailable, fall
+        # back to the base rate alone rather than guessing a leverage spread.
+        debt_ratio_percent = context.ratio_percent(
+            "debt_ratio", "total_liabilities", "total_assets"
+        )
+        if debt_ratio_percent is None:
+            return base_rate
+
+        debt_ratio = debt_ratio_percent / 100
         leverage_spread = debt_ratio * 0.05  # Up to 5% additional
 
         return base_rate + leverage_spread
 
-    def _generate_commentary(self, roic: float, wacc: float, snapshot: FinancialSnapshot) -> str:
+    def _generate_commentary(
+        self, roic: float, wacc: float, context: CanonicalFinancialContext
+    ) -> str:
         """Generate commentary on value creation."""
         spread = roic - wacc
 
@@ -167,11 +187,23 @@ class ROICWACCService:
         else:
             parts.append("Poor capital efficiency")
 
-        # Leverage commentary
-        debt_ratio = snapshot.debt_ratio
-        if debt_ratio > 60:
-            parts.append(f"High leverage ({debt_ratio:.0f}%) increases WACC")
-        elif debt_ratio < 30:
-            parts.append(f"Conservative capital structure ({debt_ratio:.0f}%)")
+        # Leverage commentary (only when total_assets is actually available;
+        # do not fabricate a 0% debt ratio when the input is unavailable)
+        debt_ratio = context.ratio_percent("debt_ratio", "total_liabilities", "total_assets")
+        if debt_ratio is not None:
+            if debt_ratio > 60:
+                parts.append(f"High leverage ({debt_ratio:.0f}%) increases WACC")
+            elif debt_ratio < 30:
+                parts.append(f"Conservative capital structure ({debt_ratio:.0f}%)")
 
         return ". ".join(parts) + "."
+
+    def _validation_notes(self, context: CanonicalFinancialContext, fields: list[str]) -> list[str]:
+        """Surface blocking (error-severity) validation failures on required inputs."""
+        notes = []
+        for failure in context.failed_validations(fields, severities=["error"]):
+            if failure.message:
+                notes.append(f"Validation failed: {failure.rule_name} - {failure.message}.")
+            else:
+                notes.append(f"Validation failed: {failure.rule_name}.")
+        return notes
