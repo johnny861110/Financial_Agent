@@ -33,8 +33,8 @@ Adding it surfaced two tests that silently depended on the gitignored `data/`
 directory and could not pass on a fresh clone; both were made hermetic. See the
 Phase A checklist and the hermeticity note below.
 
-**Phase C (schema-aware tool contracts) is now complete** on branch
-`feat/schema-aware-tool-contracts`: all 11 tools declare `ToolRequirements`,
+**Phase C (schema-aware tool contracts) is now complete** — PR #9, merged as
+`458001e`: all 11 tools declare `ToolRequirements`,
 eligibility is decided before invocation from canonical field states, and
 `ToolResult` explains blocked fields and rules. Implementing it uncovered that
 the previous gate both had drifted (ews missing `cash_and_equivalents`, factor
@@ -75,6 +75,10 @@ are now:
   merged as `c1e0293` on 2026-08-28
 - Peer/Factor migration PR (completes Phase B): <https://github.com/johnny861110/Financial_Agent/pull/7>,
   merged as `46247ef` on 2026-08-28
+- CI and test-hermeticity PR: <https://github.com/johnny861110/Financial_Agent/pull/8>,
+  merged as `b58d780` on 2026-08-28
+- Schema-aware tool contracts PR (Phase C): <https://github.com/johnny861110/Financial_Agent/pull/9>,
+  merged as `458001e` on 2026-08-29
 
 The implementation SHA intentionally identifies the code milestone before this
 handoff-only PR. At session start, use `git rev-parse HEAD origin/main` to read
@@ -552,8 +556,8 @@ and remote SHAs, and GitNexus financial-platform status. Financial_Agent has
 merged PR #5 (EarningsQuality/EWS, at commit 3420e9d), PR #6
 (ROIC-WACC/CapitalAllocation, at commit c1e0293), and PR #7 (Peer/Factor, at
 commit 46247ef), which completes Phase B's entire service migration order.
-Phase C (schema-aware tool contracts) is also complete -- see the top-of-file
-session update for its PR/merge SHA. Do not reimplement the FinancialReports
+PR #8 added CI (at commit b58d780) and PR #9 completed Phase C, schema-aware
+tool contracts (at commit 458001e). Do not reimplement the FinancialReports
 provider, API, SnapshotRecord mapping, or CanonicalFinancialContext; do not
 re-migrate any of the eight services already on DataLoader.load_context(); and
 do not rebuild the tool-eligibility gate (TOOL_REQUIREMENTS +
