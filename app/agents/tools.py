@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 from typing import Optional, Dict, Any
 from langchain.tools import tool
-from app.agents.contracts import ToolResult, ToolStatus
+from app.agents.contracts import ToolRequirements, ToolResult, ToolStatus
 from app.core import DataLoader, InsufficientDataError
 from app.services import (
     SnapshotService,
@@ -16,6 +16,125 @@ from app.services import (
     CapitalAllocationService,
     EarlyWarningService,
 )
+
+# Requirements are imported from the owning service, never restated here, so a
+# service's required-field list and the planner's gate cannot drift apart.
+from app.services.earnings_quality_service import (
+    EARNINGS_QUALITY_REQUIRED_FIELDS,
+    MONEY_UNIT,
+)
+from app.services.ews_service import EWS_REQUIRED_FIELDS
+from app.services.factor_service import EPS_UNIT, FACTOR_MONEY_FIELDS
+from app.services.roic_wacc_service import ROIC_WACC_REQUIRED_FIELDS
+
+
+# Only "present" clears a required field. missing/null/not_applicable/
+# provider_failure all block, and so does a field whose state could not be
+# determined -- an undeterminable field must never read as eligible.
+USABLE_FIELD_STATE = "present"
+UNKNOWN_FIELD_STATE = "unknown"
+
+
+TOOL_REQUIREMENTS: dict[str, ToolRequirements] = {
+    # Best-effort tools: they degrade per-metric rather than failing outright,
+    # so they declare no hard field gate. Declared explicitly (not omitted) so a
+    # tool can never fall through the gate by simply being absent.
+    "snapshot": ToolRequirements(),
+    "trend": ToolRequirements(),
+    "peer": ToolRequirements(),
+    "capital_allocation": ToolRequirements(),
+    # Scored entirely from caller-supplied assumptions.
+    "management": ToolRequirements(uses_filing_data=False),
+    "sentiment": ToolRequirements(uses_filing_data=False),
+    "guidance": ToolRequirements(uses_filing_data=False),
+    # Tools with a hard required-field contract enforced by their service.
+    "earnings_quality": ToolRequirements(
+        required_fields=EARNINGS_QUALITY_REQUIRED_FIELDS,
+        expected_unit=MONEY_UNIT,
+    ),
+    "roic_wacc": ToolRequirements(
+        required_fields=ROIC_WACC_REQUIRED_FIELDS,
+        expected_unit=MONEY_UNIT,
+    ),
+    "ews": ToolRequirements(
+        required_fields=EWS_REQUIRED_FIELDS,
+        expected_unit=MONEY_UNIT,
+    ),
+    "factor": ToolRequirements(
+        required_fields=FACTOR_MONEY_FIELDS,
+        expected_unit=MONEY_UNIT,
+        extra_unit_fields={"eps_basic": EPS_UNIT},
+    ),
+}
+
+
+def required_fields_for_planning() -> list[str]:
+    """Every field any tool may gate on, for one batched field-state lookup."""
+    fields: list[str] = []
+    for requirements in TOOL_REQUIREMENTS.values():
+        for field in requirements.all_required_fields:
+            if field not in fields:
+                fields.append(field)
+    return fields
+
+
+def evaluate_eligibility(
+    tool_name: str,
+    field_states: dict[str, str],
+    *,
+    quality_score: float | None = None,
+    is_stale: bool = False,
+    failed_rules: Optional[list[str]] = None,
+) -> Optional[Dict[str, Any]]:
+    """Decide whether a tool may run, before invoking it.
+
+    Returns None when the tool is eligible, otherwise the blocked ToolResult
+    payload explaining which fields and rules made it ineligible.
+    """
+    requirements = TOOL_REQUIREMENTS.get(tool_name)
+    if requirements is None or not requirements.uses_filing_data:
+        return None
+
+    blocked = {
+        field: field_states.get(field, UNKNOWN_FIELD_STATE)
+        for field in requirements.all_required_fields
+        if field_states.get(field, UNKNOWN_FIELD_STATE) != USABLE_FIELD_STATE
+    }
+    blocking_rules = sorted(set(failed_rules or []) & set(requirements.blocking_validation_rules))
+
+    reasons: list[str] = []
+    if blocked:
+        reasons.append(
+            "unavailable fields: "
+            + ", ".join(f"{field} ({state})" for field, state in sorted(blocked.items()))
+        )
+    if blocking_rules:
+        reasons.append("failed validations: " + ", ".join(blocking_rules))
+    if not requirements.allows_stale and is_stale:
+        reasons.append("the filing data is stale and this tool requires fresh data")
+    if (
+        requirements.min_quality is not None
+        and quality_score is not None
+        and quality_score < requirements.min_quality
+    ):
+        reasons.append(
+            f"data quality {quality_score:.2f} is below the required "
+            f"{requirements.min_quality:.2f}"
+        )
+
+    if not reasons:
+        return None
+
+    return _result(
+        tool_name,
+        "insufficient_data",
+        finding=f"{tool_name} was not run because " + "; ".join(reasons),
+        missing_fields=sorted(blocked),
+        blocked_fields=blocked,
+        failed_rules=blocking_rules,
+        confidence=0.0,
+        error="insufficient_data",
+    )
 
 
 @dataclass
@@ -76,6 +195,8 @@ def _result(
     assumptions: dict[str, Any] | None = None,
     confidence: float = 0.0,
     error: str | None = None,
+    blocked_fields: dict[str, str] | None = None,
+    failed_rules: list[str] | None = None,
 ) -> Dict[str, Any]:
     return ToolResult(
         tool=tool_name,
@@ -88,6 +209,8 @@ def _result(
         assumptions=assumptions or {},
         confidence=confidence,
         error=error,
+        blocked_fields=blocked_fields or {},
+        failed_rules=failed_rules or [],
     ).model_dump(mode="json")
 
 
@@ -492,17 +615,22 @@ def tool_ews(stock_code: str, period: str) -> Dict[str, Any]:
     return _result("ews", "not_found", error="Data not found")
 
 
+# Planner-facing name -> tool. The planner, the executor, and TOOL_REQUIREMENTS
+# are all keyed by these names; test_tool_eligibility asserts the registries stay
+# in step, so a new tool cannot reach the planner without declaring what it needs.
+TOOL_REGISTRY = {
+    "snapshot": tool_snapshot,
+    "trend": tool_trend,
+    "peer": tool_peer_compare,
+    "management": tool_management_score,
+    "earnings_quality": tool_earnings_quality_score,
+    "roic_wacc": tool_roic_wacc,
+    "factor": tool_factor_exposure,
+    "capital_allocation": tool_capital_allocation,
+    "sentiment": tool_sentiment,
+    "guidance": tool_guidance_tracker,
+    "ews": tool_ews,
+}
+
 # Export all tools
-ALL_TOOLS = [
-    tool_snapshot,
-    tool_trend,
-    tool_peer_compare,
-    tool_management_score,
-    tool_earnings_quality_score,
-    tool_roic_wacc,
-    tool_factor_exposure,
-    tool_capital_allocation,
-    tool_sentiment,
-    tool_guidance_tracker,
-    tool_ews,
-]
+ALL_TOOLS = list(TOOL_REGISTRY.values())

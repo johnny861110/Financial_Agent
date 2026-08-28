@@ -11,6 +11,8 @@ from langchain_core.output_parsers import PydanticOutputParser
 from langchain_core.prompts import PromptTemplate
 from app.core import DataLoader, get_settings
 from app.agents.contracts import ResearchFinding, ResearchReport, ToolResult
+from app.agents.tools import TOOL_REGISTRY, evaluate_eligibility, required_fields_for_planning
+from app.data.context import CanonicalFinancialContext
 from app.data.readiness import DataReadinessService
 from app.models.agent_models import AgentQuery, AgentResponse, IntentClassification
 
@@ -37,6 +39,8 @@ class AgentState(TypedDict):
     evidence: list[dict]
     contradictions: list[str]
     report: dict
+    field_states: dict[str, str]
+    failed_rules: list[str]
 
 
 class FinancialAgent:
@@ -222,6 +226,8 @@ class FinancialAgent:
                 "warnings": ["Management analysis uses caller-supplied assumptions"],
             }
             state["evidence"] = []
+            state["field_states"] = {}
+            state["failed_rules"] = []
             return state
 
         readiness_service = DataReadinessService(self.data_loader.provider)
@@ -244,8 +250,21 @@ class FinancialAgent:
                     }
                 ]
             state["evidence"] = evidence
+
+            # Resolve every field any tool may gate on in one pass. The canonical
+            # context reports per-field state for both providers: it falls back to
+            # inspecting the snapshot when the producer supplies no
+            # field_availability, so this works where the previous gate -- which
+            # read producer-reported quality.missing_fields -- could not.
+            context = CanonicalFinancialContext(record)
+            state["field_states"] = context.field_states(required_fields_for_planning())
+            state["failed_rules"] = [
+                failure.rule_name for failure in context.failed_validations(severities=["error"])
+            ]
         else:
             state["evidence"] = []
+            state["field_states"] = {}
+            state["failed_rules"] = []
 
         if (
             readiness.status == "missing"
@@ -346,33 +365,7 @@ class FinancialAgent:
 
     def _research_executor_node(self, state: AgentState) -> AgentState:
         """Execute every planned tool and normalize failures."""
-        from app.agents.tools import (
-            tool_capital_allocation,
-            tool_earnings_quality_score,
-            tool_ews,
-            tool_factor_exposure,
-            tool_guidance_tracker,
-            tool_management_score,
-            tool_peer_compare,
-            tool_roic_wacc,
-            tool_snapshot,
-            tool_sentiment,
-            tool_trend,
-        )
-
-        tools = {
-            "snapshot": tool_snapshot,
-            "trend": tool_trend,
-            "peer": tool_peer_compare,
-            "management": tool_management_score,
-            "earnings_quality": tool_earnings_quality_score,
-            "roic_wacc": tool_roic_wacc,
-            "factor": tool_factor_exposure,
-            "capital_allocation": tool_capital_allocation,
-            "sentiment": tool_sentiment,
-            "guidance": tool_guidance_tracker,
-            "ews": tool_ews,
-        }
+        tools = TOOL_REGISTRY
         readiness = state.get("data_readiness", {})
         if not readiness.get("available", False):
             status = readiness.get("status", "failed")
@@ -388,38 +381,21 @@ class FinancialAgent:
             }
         else:
             results: dict[str, dict] = {}
-            required_fields = {
-                "earnings_quality": {
-                    "net_income",
-                    "operating_income",
-                    "total_assets",
-                    "net_revenue",
-                    "accounts_receivable",
-                    "inventory",
-                },
-                "roic_wacc": {"operating_income", "equity", "total_liabilities"},
-                "ews": {
-                    "net_revenue",
-                    "accounts_receivable",
-                    "inventory",
-                    "total_assets",
-                    "total_liabilities",
-                },
-            }
-            known_missing = set(readiness.get("missing_fields", []))
+            field_states = state.get("field_states", {})
+            failed_rules = state.get("failed_rules", [])
             for tool_name in state.get("research_plan", []):
                 selected = tools.get(tool_name)
                 if selected is None:
                     continue
-                blocked_fields = sorted(known_missing & required_fields.get(tool_name, set()))
-                if blocked_fields:
-                    results[tool_name] = ToolResult(
-                        tool=tool_name,
-                        status="insufficient_data",
-                        finding="Required fields are unavailable",
-                        missing_fields=blocked_fields,
-                        error="insufficient_data",
-                    ).model_dump(mode="json")
+                blocked = evaluate_eligibility(
+                    tool_name,
+                    field_states,
+                    quality_score=readiness.get("quality_score"),
+                    is_stale=readiness.get("status") == "stale",
+                    failed_rules=failed_rules,
+                )
+                if blocked is not None:
+                    results[tool_name] = blocked
                     continue
                 try:
                     result = selected.invoke(self._tool_arguments(tool_name, state))
@@ -460,6 +436,44 @@ class FinancialAgent:
         if roic.get("creating_value") and earnings.get("total_score", 100) < 50:
             contradictions.append("Capital returns appear positive while earnings quality is weak")
         return contradictions
+
+    # Confidence penalties. Each is bounded and strictly positive: a degraded
+    # signal must lower confidence without collapsing it to zero, which would be
+    # indistinguishable from "no analysis was possible at all".
+    STALE_DATA_PENALTY = 0.9
+    FAILED_VALIDATION_PENALTY = 0.85
+    DATA_GAP_PENALTY = 0.8
+    NO_EVIDENCE_PENALTY = 0.75
+
+    def _confidence_multiplier(
+        self, state: AgentState, findings: list[ResearchFinding], has_gaps: bool
+    ) -> float:
+        """Scale confidence by data quality, freshness, validation, and evidence.
+
+        Answers the Phase C criterion that confidence reflect the state of the
+        source data, not only the per-tool constants the tools report.
+        """
+        readiness = state.get("data_readiness", {})
+        multiplier = 1.0
+
+        quality = readiness.get("quality_score")
+        if quality is not None:
+            multiplier *= float(quality)
+        if readiness.get("status") == "stale":
+            multiplier *= self.STALE_DATA_PENALTY
+        if state.get("failed_rules"):
+            multiplier *= self.FAILED_VALIDATION_PENALTY
+        if has_gaps:
+            multiplier *= self.DATA_GAP_PENALTY
+
+        # Evidence coverage: a finding with no supporting evidence is weaker
+        # than the same finding backed by filing facts.
+        if findings:
+            supported = sum(1 for finding in findings if finding.evidence)
+            coverage = supported / len(findings)
+            multiplier *= self.NO_EVIDENCE_PENALTY + (1 - self.NO_EVIDENCE_PENALTY) * coverage
+
+        return multiplier
 
     def _build_research_report(self, state: AgentState) -> ResearchReport:
         results = state.get("tool_results", {})
@@ -505,11 +519,7 @@ class FinancialAgent:
         base_confidence = (
             sum(confidence_values) / len(confidence_values) if confidence_values else 0.0
         )
-        quality = state.get("data_readiness", {}).get("quality_score")
-        if quality is not None:
-            base_confidence *= float(quality)
-        if gaps:
-            base_confidence *= 0.8
+        base_confidence *= self._confidence_multiplier(state, findings, bool(gaps))
 
         unique_evidence = list(
             {json.dumps(item, sort_keys=True): item for item in evidence}.values()
@@ -772,6 +782,8 @@ Requirements:
             evidence=[],
             contradictions=[],
             report={},
+            field_states={},
+            failed_rules=[],
         )
 
         # Run the workflow

@@ -27,12 +27,20 @@ tests, mypy/black/compileall/whitespace/fsck clean, GitNexus re-indexed at
 entire service migration order** (Snapshot, Trend, EarningsQuality/EWS,
 ROIC-WACC/CapitalAllocation, Peer/Factor — all five items done).
 
-Finally, CI was added (`.github/workflows/ci.yml`) — the repository had none,
-so PRs #5–#7 all merged on locally-run gates alone. Adding it surfaced two
-tests that silently depended on the gitignored `data/` directory and could
-not pass on a fresh clone; both were made hermetic. See the Phase A checklist
-and the hermeticity note below. The next session should start Phase C
-(schema-aware tool contracts) — see its "Immediate next work" list.
+CI was then added (`.github/workflows/ci.yml`, PR #8 merged as `b58d780`) —
+the repository had none, so PRs #5–#7 all merged on locally-run gates alone.
+Adding it surfaced two tests that silently depended on the gitignored `data/`
+directory and could not pass on a fresh clone; both were made hermetic. See the
+Phase A checklist and the hermeticity note below.
+
+**Phase C (schema-aware tool contracts) is now complete** on branch
+`feat/schema-aware-tool-contracts`: all 11 tools declare `ToolRequirements`,
+eligibility is decided before invocation from canonical field states, and
+`ToolResult` explains blocked fields and rules. Implementing it uncovered that
+the previous gate both had drifted (ews missing `cash_and_equivalents`, factor
+ungated) *and* was dead code under the default JSON provider. One dimension —
+supported company sectors — was deliberately deferred; see Phase C below for
+why. The next session should start Phase D (filing text retrieval).
 
 ## 1. Handoff Objective
 
@@ -180,8 +188,8 @@ context, but analysis utilization remains incomplete elsewhere.
 | Canonical facts and units | Yes | All eight deterministic services use `load_context()`. CapitalAllocationService and PeerService only need it for existence/skip checks (no hard required-field gate for either); Snapshot/Trend/EarningsQuality/EWS/ROIC-WACC/FactorService also declare and enforce required fields |
 | Fact evidence text | Yes | Yes, bounded fact-level excerpts |
 | Quality, missing fields, freshness | Yes | Yes |
-| Field availability states | Yes | Used by every service with a required-field gate (Snapshot, Trend, EarningsQuality, EWS, ROIC-WACC, FactorService); not yet by tool planning (Phase C) |
-| Validation records | Yes | Surfaced as red flags (EarningsQuality) / signals (EWS) / commentary notes (ROIC-WACC) for blocking (error-severity) failures on required fields; not yet used as planner/executor gates (Phase C) |
+| Field availability states | Yes | Used by every service with a required-field gate, **and by tool planning** — `evaluate_eligibility()` blocks a tool before invocation on any non-`present` required field |
+| Validation records | Yes | Surfaced as red flags (EarningsQuality) / signals (EWS) / commentary notes (ROIC-WACC); error-severity failures also feed the planner gate (`blocking_validation_rules`, no tool opts in yet) and lower report confidence |
 | Metric records and formulas | Yes | Snapshot/Trend/EWS/ROIC-WACC use producer ratios when available |
 | Producer YoY/QoQ comparisons | Yes | Not used by trend analysis |
 | Insight cards | Yes | Not used by planner/composer |
@@ -301,58 +309,64 @@ Acceptance criteria (met by every migrated service):
 Immediate next work (first task for the next session): start Phase C
 (schema-aware tool contracts) below.
 
-### Phase C: Schema-Aware Tool Contracts
+### Phase C: Schema-Aware Tool Contracts — completed
 
-Extend each Agent tool definition with:
+Each of the 11 tools in `TOOL_REGISTRY` declares a `ToolRequirements`
+(`app/agents/contracts.py`), registered in `TOOL_REQUIREMENTS`
+(`app/agents/tools.py`):
 
-- required and optional fields;
-- expected units;
-- minimum quality and evidence coverage;
-- blocking validation rules;
-- whether stale data is allowed;
-- supported company sectors.
+- [x] required fields — imported from the owning service's constant, never
+      restated, so the planner and the service cannot disagree;
+- [x] expected units (`expected_unit`, plus `extra_unit_fields` for mixed-unit
+      tools such as factor's per-share `eps_basic`);
+- [x] minimum quality (`min_quality`) and evidence coverage (folded into
+      confidence, see below);
+- [x] blocking validation rules (`blocking_validation_rules`);
+- [x] whether stale data is allowed (`allows_stale`);
+- [ ] **supported company sectors — deferred, deliberately.** There is no
+      sector data in the pipeline: `FilingIdentityRecord.industry` appears only
+      in the model definition and the `app/data/__init__.py` re-export, nothing
+      populates or reads it, and `JsonFinancialDataProvider` does not construct
+      an identity at all. Shipping the declaration field would be a gate with
+      no producer and no consumer. Revisit when the producer actually supplies
+      sector on the filing identity.
 
-Use these declarations in the planner and executor. The LLM must not decide
-whether source data is structurally valid.
+`evaluate_eligibility()` (`app/agents/tools.py`) decides eligibility, and
+`_research_executor_node` calls it before invoking each planned tool.
+
+Two problems this fixed, both found during implementation:
+
+1. **The old gate was drifting.** `workflow.py` hardcoded required fields for 3
+   of 11 tools; its `ews` entry omitted `cash_and_equivalents` (the service
+   requires 6 fields, the gate checked 5) and `factor` had no entry at all.
+2. **The old gate was dead code under the default provider.** It filtered on
+   `readiness.missing_fields` = producer-reported `quality.missing_fields`, and
+   `JsonFinancialDataProvider` builds `SnapshotRecord` with no `quality`, so
+   that list was always empty and the gate could never block. Eligibility was
+   effectively "always eligible, discover failure by exception". The gate now
+   reads `CanonicalFinancialContext.field_states()`, whose `availability()`
+   falls back to inspecting the snapshot, so it is live for both providers.
 
 Acceptance criteria:
 
-- Tool eligibility is deterministic and testable.
-- Tool results explain every blocked field or validation.
-- Confidence reflects quality, freshness, validation, and evidence coverage.
+- [x] Tool eligibility is deterministic and testable
+      (`tests/test_tool_eligibility.py`, 14 tests).
+- [x] Tool results explain every blocked field or validation — `ToolResult`
+      gained `blocked_fields` (field → state) and `failed_rules`.
+- [x] Confidence reflects quality, freshness, validation, and evidence coverage
+      (`FinancialAgent._confidence_multiplier`).
 
-Immediate next work (first task for the next session):
+Note: no tool currently opts into the `min_quality`, `allows_stale`, or
+`blocking_validation_rules` gates — choosing those thresholds is a product
+decision, not an engineering one. The machinery is live and covered by tests
+that override one tool's declaration, so opting a tool in is a one-line change
+rather than new plumbing.
 
-1. Read `app/agents/contracts.py` (`ToolResult`, the one auditable result
-   shape every tool already returns) and `app/agents/tools.py` (the 11
-   `@tool` functions in `ALL_TOOLS`, each wrapping one service call).
-2. Add a new declaration type to `contracts.py` (e.g. `ToolRequirements`):
-   required/optional fields, expected units, minimum quality/evidence
-   coverage, blocking validation rules, whether stale data is allowed,
-   supported sectors. Every migrated service already exposes its own
-   required-field list as a module constant — reuse them instead of
-   hand-duplicating: `EARNINGS_QUALITY_REQUIRED_FIELDS`
-   (`earnings_quality_service.py`), `EWS_REQUIRED_FIELDS`
-   (`ews_service.py`), `ROIC_WACC_REQUIRED_FIELDS`
-   (`roic_wacc_service.py`), `FACTOR_MONEY_FIELDS` (`factor_service.py`).
-   Snapshot, Trend, CapitalAllocation, and Peer have no hard required-field
-   gate today (best-effort/skip semantics) — their contract should say so
-   explicitly rather than inventing one.
-3. Wire the declaration into the planner/executor in `app/agents/workflow.py`
-   so tool eligibility is decided *before* calling a tool (checking
-   `CanonicalFinancialContext.field_states()`/`availability()` against the
-   declared required fields), not only discovered after a service raises
-   `InsufficientDataError`. The LLM must not be the one deciding whether
-   data is structurally valid.
-4. Extend `ToolResult` (or add a sibling type) so a blocked tool call
-   explains every blocked field/validation by name, not just a freeform
-   `finding` string — reuse the `field_states()`/`failed_validations()`
-   accessors already on `CanonicalFinancialContext`.
-5. Add deterministic tests: a tool is ineligible when a declared required
-   field is `missing`/`not_applicable`/`provider_failure`, eligible when
-   `present`, and confidence reflects quality/freshness/validation/evidence
-   coverage per the acceptance criteria above.
-6. Commit, run full gates, refresh GitNexus, update this handoff, PR, merge.
+Immediate next work (first task for the next session): start Phase D below.
+
+The `blocked_fields`/`failed_rules` that Phase C added to `ToolResult` are not
+yet surfaced in the UI — that is Phase E's job, and it now has real data to
+render.
 
 ### Phase D: Filing Text Retrieval
 
@@ -471,6 +485,12 @@ Phase B): 70 pytest tests passed, 27 source files passed mypy, 63 files
 passed Black, and compileall/whitespace-diff/fsck checks passed the same
 way.
 
+After Phase C (schema-aware tool contracts): 84 pytest tests passed — both
+with and without a `data/` directory — 27 source files passed mypy, 64 files
+passed Black, compileall/whitespace-diff passed, and GitNexus re-indexed at
+1,726 nodes / 3,023 edges / 0 import cycles (`workflow.py` now imports
+`tools.py` at module level; the cycle check confirms that introduced none).
+
 ### FinancialReports
 
 Use the repository's Ruff, mypy, pytest, compile, OpenAPI drift, and Python
@@ -532,19 +552,21 @@ and remote SHAs, and GitNexus financial-platform status. Financial_Agent has
 merged PR #5 (EarningsQuality/EWS, at commit 3420e9d), PR #6
 (ROIC-WACC/CapitalAllocation, at commit c1e0293), and PR #7 (Peer/Factor, at
 commit 46247ef), which completes Phase B's entire service migration order.
-Do not reimplement the
-FinancialReports provider, API, SnapshotRecord mapping, or
-CanonicalFinancialContext, and do not re-migrate any of the eight services
-already on DataLoader.load_context(). Start Phase C (schema-aware tool
-contracts): read app/agents/contracts.py and app/agents/tools.py, then add a
-ToolRequirements-style declaration (required/optional fields, expected units,
-minimum quality/evidence coverage, blocking validation rules, stale-data
-tolerance, supported sectors) to each of the 11 tools in ALL_TOOLS, reusing
-the *_REQUIRED_FIELDS constants each migrated service already exports rather
-than duplicating them. Wire the declaration into app/agents/workflow.py's
-planner so tool eligibility is decided before execution, not only discovered
-after a service raises InsufficientDataError. See Phase C's "Immediate next
-work" list for the full six-step breakdown. Preserve the FinancialReports
+Phase C (schema-aware tool contracts) is also complete -- see the top-of-file
+session update for its PR/merge SHA. Do not reimplement the FinancialReports
+provider, API, SnapshotRecord mapping, or CanonicalFinancialContext; do not
+re-migrate any of the eight services already on DataLoader.load_context(); and
+do not rebuild the tool-eligibility gate (TOOL_REQUIREMENTS +
+evaluate_eligibility in app/agents/tools.py). Start Phase D (filing text
+retrieval): add a bounded, question-directed retrieval contract so narrative
+questions get cited filing chunks while numeric questions stay on the
+structured-fact path. The producer already exposes
+GET /v1/filings/{stock}/{period}/context and FinancialReportsProvider already
+has a get_context() client method -- the Agent workflow does not call it yet.
+Read Phase D below for the chunk contract and acceptance criteria. Note one
+Phase C dimension was deliberately deferred (supported company sectors, no
+sector data exists in the pipeline) -- do not "finish" it without first adding
+a real producer for FilingIdentityRecord.industry. Preserve the FinancialReports
 untracked paths listed in the handoff. Financial_Agent now has CI
 (.github/workflows/ci.yml) -- check it is green on any PR before merging, and
 note data/ is gitignored, so inject a RecordProvider from tests/helpers.py in
