@@ -20,6 +20,7 @@ Financial_Agent/
 |   |   |-- data_loader.py      Backward-compatible provider facade
 |   |   `-- utils.py            Validation and financial math helpers
 |   |-- data/
+|   |   |-- context.py          Canonical facts, units, absence, validation accessors
 |   |   |-- models.py           Quality, freshness, evidence, snapshot record
 |   |   |-- providers.py        JSON, HTTP, fallback, retry, and stale cache
 |   |   |-- readiness.py        Data-state classification and refresh access

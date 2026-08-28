@@ -25,6 +25,7 @@ committee. Source ingestion belongs to the separate FinancialReports service.
 | --- | --- |
 | Delivery | FastAPI API and Streamlit analyst UI |
 | Data | Local JSON provider and FinancialReports HTTP provider |
+| Canonical context | Fact/unit/availability/validation accessors; Snapshot and Trend migrated |
 | Resilience | Retry, controlled fallback, process-local TTL cache, stale mode |
 | Readiness | Ready, processing, missing, low-quality, stale, and failed states |
 | Analytics | Snapshot, trend, peers, management, earnings quality, ROIC/WACC, factors, capital allocation, EWS |
@@ -68,6 +69,9 @@ between narrow and broad behavior from the request.
 
 - FinancialReports v1 and its consumer are merged and contract-tested. A named
   production deployment target has not been configured.
+- Canonical context migration is incremental: Snapshot and Trend actively use
+  rich schema; the remaining deterministic services still use the legacy
+  snapshot facade.
 - The cache and Agent state are process-local and not durable.
 - No authentication, authorization, rate limiting, or tenant isolation exists.
 - ROIC/WACC and management analyses may rely on explicit defaults/caller input.
@@ -78,11 +82,10 @@ between narrow and broad behavior from the request.
 
 ## Verification Status
 
-The current consumer implementation passes Black, Python compilation, mypy,
-and 40 pytest tests. Coverage includes rich-schema provider mapping/failures, retry and stale
-cache behavior, readiness states, tool contracts, API behavior, and a complete
-multi-tool research workflow. GitNexus reported no circular imports; the final
-cross-layer change affected 34 files, 184 symbols, and 65 processes.
+The current consumer passes Black, Python compilation, mypy, and 44 pytest
+tests. Coverage includes absence states, unit mismatch, validation filtering,
+producer metrics, missing-safe trend behavior, provider resilience, Agent
+workflow, services, and API behavior.
 
 ## Next Engineering Priorities
 

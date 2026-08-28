@@ -20,6 +20,10 @@ pull requests were merged and validated together on 2026-08-28. Production
 deployment remains environment-specific. The implemented system, data-layer,
 and Agent-layer diagrams are maintained in `ARCHITECTURE.md`.
 
+Canonical context phase B started on 2026-08-28. The shared context model and
+Snapshot/Trend migrations are implemented; remaining deterministic services,
+schema-aware tool gates, and filing-text retrieval are subsequent increments.
+
 The two applications communicate over a versioned HTTP API. They must not
 share a SQLite file directly.
 
@@ -129,6 +133,20 @@ MOPS / XBRL / iXBRL / PDF / FinMind
 - [x] Merge producer baseline PR, producer API PR, then the consumer PR.
 - [x] Run FinancialReports main and cross-repository health validation locally.
 - [ ] Deploy FinancialReports and switch `DATA_PROVIDER` in a named target environment.
+
+### Phase 9: Canonical financial context
+
+- [x] Add indexed access to canonical facts, field states, units, metrics,
+  validations, freshness, and evidence.
+- [x] Preserve JSON and `FinancialSnapshot` compatibility during migration.
+- [x] Migrate snapshot summaries without converting missing ratios to zero.
+- [x] Migrate trend analysis without adding zero observations for missing data.
+- [x] Add tests for `not_applicable`, unit mismatch, validation filtering, and
+  producer metric use.
+- [ ] Migrate earnings quality, EWS, ROIC/WACC, capital allocation, peer, and
+  factor services.
+- [ ] Add schema-aware eligibility declarations to Agent tool contracts.
+- [ ] Add question-directed filing-text retrieval and citations.
 
 ## FinancialReports API Contract
 

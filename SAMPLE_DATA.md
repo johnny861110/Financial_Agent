@@ -42,8 +42,9 @@ The default JSON provider reads enhanced files from
   value and changes formulas.
 - `stock_code`, `report_period`, currency, and unit must describe the same
   filing as the filename.
-- The loader calculates derived ratios such as margins, debt ratio, ROA, and
-  ROE from source fields.
+- The canonical context calculates a derived ratio only when all required
+  inputs are present. Missing inputs remain unavailable rather than becoming
+  zero.
 
 For trends, provide multiple periods for one stock. For peers/factors, provide
 the same period for multiple stocks.
@@ -69,6 +70,10 @@ The remote FinancialReports provider should return document-grade evidence:
 
 The complete remote response fixture is
 `tests/fixtures/financial_reports_snapshot_v1.json`.
+
+Remote facts use explicit units such as `TWD_thousands`, `TWD_per_share`,
+`ratio`, and `percent`. A context accessor rejects an unexpected unit before a
+formula runs. `not_applicable` remains distinct from `missing`.
 
 ## Missing Data
 
