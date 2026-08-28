@@ -1,7 +1,7 @@
 """Capital allocation analysis service."""
 
 from typing import Optional
-from app.models import CapitalAllocationAnalysis, FinancialSnapshot
+from app.models import CapitalAllocationAnalysis
 from app.core import DataLoader
 
 
@@ -37,8 +37,8 @@ class CapitalAllocationService:
         Returns:
             CapitalAllocationAnalysis object or None
         """
-        snapshot = self.data_loader.load_snapshot(stock_code, period)
-        if not snapshot:
+        context = self.data_loader.load_context(stock_code, period)
+        if not context or not context.has_analysis_data:
             return None
 
         # Calculate debt change (simplified)
@@ -70,7 +70,6 @@ class CapitalAllocationService:
             rd_expense,
             ma_spending,
             debt_change,
-            snapshot,
             allocation_mix,
         )
 
@@ -94,7 +93,6 @@ class CapitalAllocationService:
         rd: float,
         ma: float,
         debt_change: float,
-        snapshot: FinancialSnapshot,
         mix: dict,
     ) -> str:
         """Generate commentary on capital allocation strategy."""
