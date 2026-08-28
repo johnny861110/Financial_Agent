@@ -13,13 +13,15 @@ ROIC-WACC/CapitalAllocation migrations)
 quality, `57d989c` ews, `41fafb5` docs) was merged as `3420e9d`.
 
 Same day, later: `ROICWACCService` and `CapitalAllocationService` are also
-migrated onto `DataLoader.load_context()` (branch
+migrated onto `DataLoader.load_context()`. PR #6 (branch
 `refactor/roic-wacc-capital-allocation-canonical-context`, commits `2ef7e0b`
-roic, `194c1fe` capital). Gates were green before merge (62 pytest tests,
-mypy/black/compileall/whitespace/fsck clean, GitNexus re-indexed at 1,630
-nodes / 2,767 edges / 0 import cycles). See the updated Phase B status and
-"Immediate next work" below — the next session should start there (peer and
-factor services).
+roic, `194c1fe` capital, `3bdace0` docs) was merged as `c1e0293`; local and
+remote `main` are synchronized (`0/0` ahead/behind) and the feature branch
+was deleted locally and remotely. Gates were green before merge (62 pytest
+tests, mypy/black/compileall/whitespace/fsck clean, GitNexus re-indexed at
+1,630 nodes / 2,767 edges / 0 import cycles). See the updated Phase B status
+and "Immediate next work" below — the next session should start there (peer
+and factor services).
 
 ## 1. Handoff Objective
 
@@ -50,6 +52,8 @@ are now:
 - All three PRs merged on 2026-08-28
 - EarningsQuality/EWS migration PR: <https://github.com/johnny861110/Financial_Agent/pull/5>,
   merged as `3420e9d` on 2026-08-28
+- ROIC-WACC/CapitalAllocation migration PR: <https://github.com/johnny861110/Financial_Agent/pull/6>,
+  merged as `c1e0293` on 2026-08-28
 
 The implementation SHA intentionally identifies the code milestone before this
 handoff-only PR. At session start, use `git rev-parse HEAD origin/main` to read
@@ -250,8 +254,7 @@ Recommended order:
 1. Snapshot service - completed
 2. Trend service - completed
 3. Earnings quality and EWS - completed (PR #5, merged as `3420e9d`)
-4. ROIC/WACC and capital allocation - completed (commits `2ef7e0b` roic,
-   `194c1fe` capital; see top-of-file session update for PR/merge SHA)
+4. ROIC/WACC and capital allocation - completed (PR #6, merged as `c1e0293`)
 5. Peer and factor services
 
 Acceptance criteria:
@@ -407,9 +410,9 @@ pytest tests passed, 27 source files passed mypy, 59 files passed Black, and
 compileall/whitespace-diff/`git fsck --full --strict` checks passed (fsck
 reports only pre-existing harmless dangling objects, no corruption).
 
-After the ROIC-WACC/CapitalAllocation migration (same day): 62 pytest tests
-passed, 27 source files passed mypy, 61 files passed Black, and
-compileall/whitespace-diff/fsck checks passed the same way.
+After the ROIC-WACC/CapitalAllocation migration (PR #6, merged as `c1e0293`):
+62 pytest tests passed, 27 source files passed mypy, 61 files passed Black,
+and compileall/whitespace-diff/fsck checks passed the same way.
 
 ### FinancialReports
 
@@ -470,9 +473,8 @@ Use this prompt at the start of the next session:
 Read NEXT_SESSION_PLAN.md first. Verify both repositories, all merged PRs, local
 and remote SHAs, and GitNexus financial-platform status. Financial_Agent has
 merged PR #5 (EarningsQuality/EWS onto canonical financial context, at commit
-3420e9d) plus a follow-up ROIC-WACC/CapitalAllocation migration merged the same
-day (see the top-of-file session update for its PR/merge SHA) -- read that
-section for the exact current commit. Do not reimplement the FinancialReports
+3420e9d) and PR #6 (ROIC-WACC/CapitalAllocation, at commit c1e0293). Do not
+reimplement the FinancialReports
 provider, API, SnapshotRecord mapping, or CanonicalFinancialContext. Start by
 impact-analyzing PeerService and FactorService, read their current
 implementations first (compare_peers takes multiple stock codes for one
