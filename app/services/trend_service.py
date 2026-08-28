@@ -1,8 +1,10 @@
 """Trend analysis service for multi-period analysis."""
 
+from collections.abc import Callable
 from typing import List, Optional, cast
 from app.models import FinancialSnapshot, TrendMetric, TrendAnalysis
 from app.core import DataLoader
+from app.data import CanonicalFinancialContext
 
 
 class TrendService:
@@ -30,39 +32,83 @@ class TrendService:
         if len(periods) < 2:
             return None
 
-        snapshots = self.data_loader.load_multiple_periods(stock_code, periods)
-        if len(snapshots) < 2:
+        contexts = self.data_loader.load_multiple_contexts(stock_code, periods)
+        if len(contexts) < 2:
             return None
 
-        # Sort snapshots by period
-        snapshots.sort(key=lambda s: s.report_period)
+        contexts.sort(key=lambda context: context.period)
 
-        # Extract company name
-        company_name = snapshots[0].company_name
+        company_name = contexts[0].company_name
 
         # Build trend metrics
         metrics = []
 
         # Revenue trend
-        metrics.append(self._build_metric("Net Revenue", snapshots, lambda s: s.net_revenue))
-
-        # Margin trends
-        metrics.append(self._build_metric("Gross Margin (%)", snapshots, lambda s: s.gross_margin))
-
         metrics.append(
-            self._build_metric("Operating Margin (%)", snapshots, lambda s: s.operating_margin)
+            self._build_context_metric(
+                "Net Revenue",
+                contexts,
+                lambda context: context.optional_value("net_revenue", "TWD_thousands"),
+            )
         )
 
-        metrics.append(self._build_metric("Net Margin (%)", snapshots, lambda s: s.net_margin))
+        # Margin trends
+        metrics.append(
+            self._build_context_metric(
+                "Gross Margin (%)",
+                contexts,
+                lambda context: context.ratio_percent(
+                    "gross_margin", "gross_profit", "net_revenue"
+                ),
+            )
+        )
+
+        metrics.append(
+            self._build_context_metric(
+                "Operating Margin (%)",
+                contexts,
+                lambda context: context.ratio_percent(
+                    "operating_margin", "operating_income", "net_revenue"
+                ),
+            )
+        )
+
+        metrics.append(
+            self._build_context_metric(
+                "Net Margin (%)",
+                contexts,
+                lambda context: context.ratio_percent("net_margin", "net_income", "net_revenue"),
+            )
+        )
 
         # EPS trend
-        metrics.append(self._build_metric("EPS", snapshots, lambda s: s.eps))
+        metrics.append(
+            self._build_context_metric(
+                "EPS",
+                contexts,
+                lambda context: context.optional_value("eps_basic", "TWD_per_share"),
+            )
+        )
 
         # Debt ratio trend
-        metrics.append(self._build_metric("Debt Ratio (%)", snapshots, lambda s: s.debt_ratio))
+        metrics.append(
+            self._build_context_metric(
+                "Debt Ratio (%)",
+                contexts,
+                lambda context: context.ratio_percent(
+                    "debt_ratio", "total_liabilities", "total_assets"
+                ),
+            )
+        )
 
         # ROE trend
-        metrics.append(self._build_metric("ROE (%)", snapshots, lambda s: s.roe))
+        metrics.append(
+            self._build_context_metric(
+                "ROE (%)",
+                contexts,
+                lambda context: context.ratio_percent("roe", "net_income", "equity", annualize=4),
+            )
+        )
 
         # Generate summary
         summary = self._generate_summary(metrics)
@@ -71,19 +117,23 @@ class TrendService:
             stock_code=stock_code, company_name=company_name, metrics=metrics, summary=summary
         )
 
-    def _build_metric(
-        self, metric_name: str, snapshots: List[FinancialSnapshot], extractor
+    def _build_context_metric(
+        self,
+        metric_name: str,
+        contexts: List[CanonicalFinancialContext],
+        extractor: Callable[[CanonicalFinancialContext], float | None],
     ) -> TrendMetric:
-        """Build a TrendMetric from snapshots."""
+        """Build a trend without converting unavailable values to zero."""
         pairs = []
-        for snapshot in snapshots:
-            value = extractor(snapshot)
+        for context in contexts:
+            value = extractor(context)
             if value is not None:
-                pairs.append((snapshot.report_period, value))
-        periods = [period for period, _ in pairs]
-        values = [value for _, value in pairs]
-
-        return TrendMetric(metric_name=metric_name, periods=periods, values=values)
+                pairs.append((context.period, value))
+        return TrendMetric(
+            metric_name=metric_name,
+            periods=[period for period, _ in pairs],
+            values=[value for _, value in pairs],
+        )
 
     def _generate_summary(self, metrics: List[TrendMetric]) -> str:
         """Generate a text summary of trends."""

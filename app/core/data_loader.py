@@ -3,6 +3,7 @@
 from typing import Optional, List
 
 from app.data.factory import get_data_provider
+from app.data.context import CanonicalFinancialContext
 from app.data.models import SnapshotRecord
 from app.data.providers import FinancialDataProvider
 from app.models import FinancialSnapshot
@@ -17,6 +18,11 @@ class DataLoader:
     def load_record(self, stock_code: str, period: str) -> Optional[SnapshotRecord]:
         """Load a snapshot together with source and quality metadata."""
         return self.provider.load_record(stock_code, period)
+
+    def load_context(self, stock_code: str, period: str) -> Optional[CanonicalFinancialContext]:
+        """Load one filing as a schema-aware service context."""
+        record = self.load_record(stock_code, period)
+        return CanonicalFinancialContext(record) if record else None
 
     def load_snapshot(self, stock_code: str, period: str) -> Optional[FinancialSnapshot]:
         """
@@ -49,6 +55,17 @@ class DataLoader:
             if snapshot:
                 snapshots.append(snapshot)
         return snapshots
+
+    def load_multiple_contexts(
+        self, stock_code: str, periods: List[str]
+    ) -> List[CanonicalFinancialContext]:
+        """Load available filing contexts while preserving rich provider metadata."""
+        contexts = []
+        for period in periods:
+            context = self.load_context(stock_code, period)
+            if context and context.has_analysis_data:
+                contexts.append(context)
+        return contexts
 
     def list_available_periods(self, stock_code: str) -> List[str]:
         """

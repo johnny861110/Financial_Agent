@@ -1,5 +1,11 @@
 """Financial data provider interfaces and implementations."""
 
+from app.data.context import (
+    CanonicalFinancialContext,
+    FieldUnavailableError,
+    FinancialContextError,
+    UnitMismatchError,
+)
 from app.data.models import (
     CanonicalFact,
     ComparisonRecord,
@@ -28,6 +34,7 @@ from app.data.providers import (
 from app.data.readiness import DataReadiness, DataReadinessService
 
 __all__ = [
+    "CanonicalFinancialContext",
     "CanonicalFact",
     "ComparisonRecord",
     "DataFreshness",
@@ -38,11 +45,13 @@ __all__ = [
     "EvidenceReference",
     "FilingIdentityRecord",
     "FieldAvailability",
+    "FieldUnavailableError",
     "FallbackFinancialDataProvider",
     "FinancialDataContractError",
     "FinancialDataProvider",
     "FinancialDataProviderError",
     "FinancialDataProviderUnavailable",
+    "FinancialContextError",
     "FinancialReportsProvider",
     "JsonFinancialDataProvider",
     "InsightCardRecord",
@@ -51,4 +60,5 @@ __all__ = [
     "SnapshotRecord",
     "SourceDocumentRecord",
     "ValidationRecord",
+    "UnitMismatchError",
 ]

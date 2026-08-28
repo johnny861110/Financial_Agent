@@ -3,6 +3,7 @@
 from typing import Optional
 from app.models import FinancialSnapshot
 from app.core import DataLoader, enrich_snapshot
+from app.data import CanonicalFinancialContext
 
 
 class SnapshotService:
@@ -38,9 +39,43 @@ class SnapshotService:
         Returns:
             Dictionary with key metrics and analysis
         """
-        snapshot = self.get_snapshot(stock_code, period)
-        if not snapshot:
+        context = self.data_loader.load_context(stock_code, period)
+        if not context or not context.has_analysis_data:
             return None
+
+        snapshot = context.record.snapshot
+        if snapshot is None:
+            return None
+
+        money_fields = [
+            "net_revenue",
+            "gross_profit",
+            "operating_income",
+            "net_income",
+            "total_assets",
+            "total_liabilities",
+            "equity",
+            "cash_and_equivalents",
+            "current_assets",
+            "current_liabilities",
+        ]
+
+        def money(field: str) -> float | None:
+            return context.optional_value(field, "TWD_thousands")
+
+        def rounded(value: float | None) -> float | None:
+            return round(value, 2) if value is not None else None
+
+        current_assets = money("current_assets")
+        current_liabilities = money("current_liabilities")
+        current_ratio = context.metric_value("current_ratio", "ratio")
+        if (
+            current_ratio is None
+            and current_assets is not None
+            and current_liabilities is not None
+            and current_liabilities != 0
+        ):
+            current_ratio = current_assets / current_liabilities
 
         return {
             "identification": {
@@ -51,32 +86,52 @@ class SnapshotService:
                 "unit": snapshot.unit,
             },
             "income_statement": {
-                "net_revenue": snapshot.net_revenue,
-                "gross_profit": snapshot.gross_profit,
-                "operating_income": snapshot.operating_income,
-                "net_income": snapshot.net_income,
-                "eps": snapshot.eps,
+                "net_revenue": money("net_revenue"),
+                "gross_profit": money("gross_profit"),
+                "operating_income": money("operating_income"),
+                "net_income": money("net_income"),
+                "eps": context.optional_value("eps_basic", "TWD_per_share"),
             },
             "margins": {
-                "gross_margin": round(snapshot.gross_margin, 2),
-                "operating_margin": round(snapshot.operating_margin, 2),
-                "net_margin": round(snapshot.net_margin, 2),
-            },
-            "balance_sheet": {
-                "total_assets": snapshot.total_assets,
-                "total_liabilities": snapshot.total_liabilities,
-                "equity": snapshot.equity,
-                "cash_and_equivalents": snapshot.cash_and_equivalents,
-            },
-            "financial_structure": {
-                "debt_ratio": round(snapshot.debt_ratio, 2),
-                "equity_ratio": round(snapshot.equity_ratio, 2),
-                "current_ratio": (
-                    round(snapshot.current_ratio, 2) if snapshot.current_ratio else None
+                "gross_margin": rounded(
+                    context.ratio_percent("gross_margin", "gross_profit", "net_revenue")
+                ),
+                "operating_margin": rounded(
+                    context.ratio_percent("operating_margin", "operating_income", "net_revenue")
+                ),
+                "net_margin": rounded(
+                    context.ratio_percent("net_margin", "net_income", "net_revenue")
                 ),
             },
+            "balance_sheet": {
+                "total_assets": money("total_assets"),
+                "total_liabilities": money("total_liabilities"),
+                "equity": money("equity"),
+                "cash_and_equivalents": money("cash_and_equivalents"),
+            },
+            "financial_structure": {
+                "debt_ratio": rounded(
+                    context.ratio_percent("debt_ratio", "total_liabilities", "total_assets")
+                ),
+                "equity_ratio": rounded(
+                    context.ratio_percent("equity_ratio", "equity", "total_assets")
+                ),
+                "current_ratio": rounded(current_ratio),
+            },
             "returns": {
-                "roa": round(snapshot.roa, 2),
-                "roe": round(snapshot.roe, 2),
+                "roa": rounded(
+                    context.ratio_percent("roa", "net_income", "total_assets", annualize=4)
+                ),
+                "roe": rounded(context.ratio_percent("roe", "net_income", "equity", annualize=4)),
+            },
+            "data_context": {
+                "schema_version": context.record.schema_version,
+                "status": context.record.status,
+                "quality_score": context.quality.score,
+                "is_stale": context.freshness.is_stale,
+                "field_states": context.field_states(money_fields + ["eps_basic"]),
+                "failed_validations": [
+                    item.model_dump(mode="json") for item in context.failed_validations()
+                ],
             },
         }
