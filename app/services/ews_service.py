@@ -1,14 +1,25 @@
 """Early Warning System service for risk detection."""
 
 from typing import List, Optional
-from app.models import EarlyWarningSystem, EarlyWarningSignal, FinancialSnapshot
+from app.models import EarlyWarningSystem, EarlyWarningSignal
 from app.core import (
     DataLoader,
     get_settings,
     calculate_growth_rate,
-    require_fields,
-    required_float,
+    required_context_values,
 )
+from app.data import CanonicalFinancialContext
+
+MONEY_UNIT = "TWD_thousands"
+
+EWS_REQUIRED_FIELDS = [
+    "net_revenue",
+    "accounts_receivable",
+    "inventory",
+    "total_assets",
+    "total_liabilities",
+    "cash_and_equivalents",
+]
 
 
 class EarlyWarningService:
@@ -32,20 +43,14 @@ class EarlyWarningService:
         Returns:
             EarlyWarningSystem object or None
         """
-        # Load current snapshot
-        current = self.data_loader.load_snapshot(stock_code, period)
-        if not current:
+        # Load current filing context
+        current = self.data_loader.load_context(stock_code, period)
+        if not current or not current.has_analysis_data:
             return None
-        require_fields(
+        required_context_values(
             current,
-            [
-                "net_revenue",
-                "accounts_receivable",
-                "inventory",
-                "total_assets",
-                "total_liabilities",
-                "cash_and_equivalents",
-            ],
+            EWS_REQUIRED_FIELDS,
+            MONEY_UNIT,
             "early warning analysis",
         )
 
@@ -54,8 +59,8 @@ class EarlyWarningService:
             all_periods = self.data_loader.list_available_periods(stock_code)
             historical_periods = all_periods[-5:] if len(all_periods) >= 2 else []
 
-        historical = self.data_loader.load_multiple_periods(stock_code, historical_periods)
-        historical = [snapshot for snapshot in historical if snapshot.report_period < period]
+        historical = self.data_loader.load_multiple_contexts(stock_code, historical_periods)
+        historical = [context for context in historical if context.period < period]
 
         signals: List[EarlyWarningSignal] = []
 
@@ -66,6 +71,7 @@ class EarlyWarningService:
         signals.extend(self._check_leverage_deterioration(current))
         signals.extend(self._check_cash_burn(current, historical))
         signals.extend(self._check_negative_cash_flow(current))
+        signals.extend(self._check_validation_failures(current, EWS_REQUIRED_FIELDS))
 
         # Determine overall warning level
         warning_level = self._determine_warning_level(signals)
@@ -84,7 +90,7 @@ class EarlyWarningService:
         )
 
     def _check_receivables_spike(
-        self, current: FinancialSnapshot, historical: List[FinancialSnapshot]
+        self, current: CanonicalFinancialContext, historical: List[CanonicalFinancialContext]
     ) -> List[EarlyWarningSignal]:
         """Check if accounts receivable growing faster than revenue."""
         signals: List[EarlyWarningSignal] = []
@@ -93,21 +99,20 @@ class EarlyWarningService:
             return signals
 
         previous = historical[-1]
-        if any(
-            getattr(snapshot, field, None) is None
-            for snapshot in [current, previous]
-            for field in ["net_revenue", "accounts_receivable"]
+        current_revenue = current.optional_value("net_revenue", MONEY_UNIT)
+        current_ar = current.optional_value("accounts_receivable", MONEY_UNIT)
+        previous_revenue = previous.optional_value("net_revenue", MONEY_UNIT)
+        previous_ar = previous.optional_value("accounts_receivable", MONEY_UNIT)
+        if (
+            current_revenue is None
+            or current_ar is None
+            or previous_revenue is None
+            or previous_ar is None
         ):
             return signals
 
-        revenue_growth = calculate_growth_rate(
-            required_float(current, "net_revenue", "receivables spike check"),
-            required_float(previous, "net_revenue", "receivables spike check"),
-        )
-        receivable_growth = calculate_growth_rate(
-            required_float(current, "accounts_receivable", "receivables spike check"),
-            required_float(previous, "accounts_receivable", "receivables spike check"),
-        )
+        revenue_growth = calculate_growth_rate(current_revenue, previous_revenue)
+        receivable_growth = calculate_growth_rate(current_ar, previous_ar)
 
         threshold = self.settings.ews_receivable_spike_threshold * 100
 
@@ -125,7 +130,7 @@ class EarlyWarningService:
         return signals
 
     def _check_inventory_spike(
-        self, current: FinancialSnapshot, historical: List[FinancialSnapshot]
+        self, current: CanonicalFinancialContext, historical: List[CanonicalFinancialContext]
     ) -> List[EarlyWarningSignal]:
         """Check if inventory growing faster than revenue."""
         signals: List[EarlyWarningSignal] = []
@@ -134,21 +139,20 @@ class EarlyWarningService:
             return signals
 
         previous = historical[-1]
-        if any(
-            getattr(snapshot, field, None) is None
-            for snapshot in [current, previous]
-            for field in ["net_revenue", "inventory"]
+        current_revenue = current.optional_value("net_revenue", MONEY_UNIT)
+        current_inventory = current.optional_value("inventory", MONEY_UNIT)
+        previous_revenue = previous.optional_value("net_revenue", MONEY_UNIT)
+        previous_inventory = previous.optional_value("inventory", MONEY_UNIT)
+        if (
+            current_revenue is None
+            or current_inventory is None
+            or previous_revenue is None
+            or previous_inventory is None
         ):
             return signals
 
-        revenue_growth = calculate_growth_rate(
-            required_float(current, "net_revenue", "inventory spike check"),
-            required_float(previous, "net_revenue", "inventory spike check"),
-        )
-        inventory_growth = calculate_growth_rate(
-            required_float(current, "inventory", "inventory spike check"),
-            required_float(previous, "inventory", "inventory spike check"),
-        )
+        revenue_growth = calculate_growth_rate(current_revenue, previous_revenue)
+        inventory_growth = calculate_growth_rate(current_inventory, previous_inventory)
 
         threshold = self.settings.ews_inventory_spike_threshold * 100
 
@@ -166,22 +170,34 @@ class EarlyWarningService:
         return signals
 
     def _check_margin_compression(
-        self, current: FinancialSnapshot, historical: List[FinancialSnapshot]
+        self, current: CanonicalFinancialContext, historical: List[CanonicalFinancialContext]
     ) -> List[EarlyWarningSignal]:
         """Check for significant margin deterioration."""
         signals: List[EarlyWarningSignal] = []
 
         if len(historical) < 2:
             return signals
-        if current.operating_income is None or current.net_revenue is None:
+
+        current_margin = current.ratio_percent(
+            "operating_margin", "operating_income", "net_revenue"
+        )
+        if current_margin is None:
             return signals
-        usable = [s for s in historical[-3:] if s.operating_income is not None and s.net_revenue]
-        if not usable:
+
+        usable_margins = [
+            margin
+            for margin in (
+                context.ratio_percent("operating_margin", "operating_income", "net_revenue")
+                for context in historical[-3:]
+            )
+            if margin is not None
+        ]
+        if not usable_margins:
             return signals
 
         # Compare with average of last 2-3 periods
-        avg_margin = sum(s.operating_margin for s in usable) / len(usable)
-        margin_change = current.operating_margin - avg_margin
+        avg_margin = sum(usable_margins) / len(usable_margins)
+        margin_change = current_margin - avg_margin
 
         threshold = self.settings.ews_margin_compression_threshold * 100
 
@@ -191,19 +207,27 @@ class EarlyWarningService:
                 EarlyWarningSignal(
                     signal_name="Margin Compression",
                     severity=severity,
-                    current_value=current.operating_margin,
+                    current_value=current_margin,
                     threshold_value=avg_margin + threshold,
-                    description=f"Operating margin declined to {current.operating_margin:.1f}% from avg {avg_margin:.1f}%. Indicates pricing pressure or cost inflation.",
+                    description=f"Operating margin declined to {current_margin:.1f}% from avg {avg_margin:.1f}%. Indicates pricing pressure or cost inflation.",
                 )
             )
 
         return signals
 
-    def _check_leverage_deterioration(self, current: FinancialSnapshot) -> List[EarlyWarningSignal]:
+    def _check_leverage_deterioration(
+        self, current: CanonicalFinancialContext
+    ) -> List[EarlyWarningSignal]:
         """Check for excessive leverage."""
         signals: List[EarlyWarningSignal] = []
 
-        debt_ratio = current.debt_ratio / 100
+        debt_ratio_percent = current.ratio_percent(
+            "debt_ratio", "total_liabilities", "total_assets"
+        )
+        if debt_ratio_percent is None:
+            return signals
+
+        debt_ratio = debt_ratio_percent / 100
         threshold = self.settings.ews_debt_ratio_critical
 
         if debt_ratio >= threshold:
@@ -221,24 +245,29 @@ class EarlyWarningService:
         return signals
 
     def _check_cash_burn(
-        self, current: FinancialSnapshot, historical: List[FinancialSnapshot]
+        self, current: CanonicalFinancialContext, historical: List[CanonicalFinancialContext]
     ) -> List[EarlyWarningSignal]:
         """Check for cash depletion."""
         signals: List[EarlyWarningSignal] = []
 
         if len(historical) < 2:
             return signals
-        usable = [s for s in historical[-3:] if s.cash_and_equivalents is not None]
-        if not usable or current.cash_and_equivalents is None:
+
+        usable = [
+            value
+            for value in (
+                context.optional_value("cash_and_equivalents", MONEY_UNIT)
+                for context in historical[-3:]
+            )
+            if value is not None
+        ]
+        current_cash = current.optional_value("cash_and_equivalents", MONEY_UNIT)
+        if not usable or current_cash is None:
             return signals
 
         # Check if cash declining significantly
-        avg_cash = sum(
-            required_float(s, "cash_and_equivalents", "cash burn check") for s in usable
-        ) / len(usable)
-        cash_decline_pct = (
-            ((current.cash_and_equivalents - avg_cash) / avg_cash) * 100 if avg_cash > 0 else 0
-        )
+        avg_cash = sum(usable) / len(usable)
+        cash_decline_pct = ((current_cash - avg_cash) / avg_cash) * 100 if avg_cash > 0 else 0
 
         if cash_decline_pct < -30:  # 30% decline
             severity = "high" if cash_decline_pct < -50 else "medium"
@@ -254,21 +283,41 @@ class EarlyWarningService:
 
         return signals
 
-    def _check_negative_cash_flow(self, current: FinancialSnapshot) -> List[EarlyWarningSignal]:
+    def _check_negative_cash_flow(
+        self, current: CanonicalFinancialContext
+    ) -> List[EarlyWarningSignal]:
         """Check for negative operating cash flow."""
         signals: List[EarlyWarningSignal] = []
 
-        if current.operating_cash_flow and current.operating_cash_flow < 0:
+        operating_cash_flow = current.optional_value("operating_cash_flow", MONEY_UNIT)
+        if operating_cash_flow is not None and operating_cash_flow < 0:
             signals.append(
                 EarlyWarningSignal(
                     signal_name="Negative Operating Cash Flow",
                     severity="high",
-                    current_value=current.operating_cash_flow,
+                    current_value=operating_cash_flow,
                     threshold_value=0.0,
                     description="Negative operating cash flow. Company burning cash from operations.",
                 )
             )
 
+        return signals
+
+    def _check_validation_failures(
+        self, context: CanonicalFinancialContext, fields: List[str]
+    ) -> List[EarlyWarningSignal]:
+        """Surface blocking (error-severity) validation failures on required inputs."""
+        signals: List[EarlyWarningSignal] = []
+        for failure in context.failed_validations(fields, severities=["error"]):
+            signals.append(
+                EarlyWarningSignal(
+                    signal_name=f"Data Validation Failure: {failure.rule_name}",
+                    severity="medium",
+                    current_value=0.0,
+                    threshold_value=0.0,
+                    description=failure.message or f"Validation rule '{failure.rule_name}' failed.",
+                )
+            )
         return signals
 
     def _determine_warning_level(self, signals: List[EarlyWarningSignal]) -> str:
