@@ -437,6 +437,44 @@ class FinancialAgent:
             contradictions.append("Capital returns appear positive while earnings quality is weak")
         return contradictions
 
+    # Confidence penalties. Each is bounded and strictly positive: a degraded
+    # signal must lower confidence without collapsing it to zero, which would be
+    # indistinguishable from "no analysis was possible at all".
+    STALE_DATA_PENALTY = 0.9
+    FAILED_VALIDATION_PENALTY = 0.85
+    DATA_GAP_PENALTY = 0.8
+    NO_EVIDENCE_PENALTY = 0.75
+
+    def _confidence_multiplier(
+        self, state: AgentState, findings: list[ResearchFinding], has_gaps: bool
+    ) -> float:
+        """Scale confidence by data quality, freshness, validation, and evidence.
+
+        Answers the Phase C criterion that confidence reflect the state of the
+        source data, not only the per-tool constants the tools report.
+        """
+        readiness = state.get("data_readiness", {})
+        multiplier = 1.0
+
+        quality = readiness.get("quality_score")
+        if quality is not None:
+            multiplier *= float(quality)
+        if readiness.get("status") == "stale":
+            multiplier *= self.STALE_DATA_PENALTY
+        if state.get("failed_rules"):
+            multiplier *= self.FAILED_VALIDATION_PENALTY
+        if has_gaps:
+            multiplier *= self.DATA_GAP_PENALTY
+
+        # Evidence coverage: a finding with no supporting evidence is weaker
+        # than the same finding backed by filing facts.
+        if findings:
+            supported = sum(1 for finding in findings if finding.evidence)
+            coverage = supported / len(findings)
+            multiplier *= self.NO_EVIDENCE_PENALTY + (1 - self.NO_EVIDENCE_PENALTY) * coverage
+
+        return multiplier
+
     def _build_research_report(self, state: AgentState) -> ResearchReport:
         results = state.get("tool_results", {})
         findings: list[ResearchFinding] = []
@@ -481,11 +519,7 @@ class FinancialAgent:
         base_confidence = (
             sum(confidence_values) / len(confidence_values) if confidence_values else 0.0
         )
-        quality = state.get("data_readiness", {}).get("quality_score")
-        if quality is not None:
-            base_confidence *= float(quality)
-        if gaps:
-            base_confidence *= 0.8
+        base_confidence *= self._confidence_multiplier(state, findings, bool(gaps))
 
         unique_evidence = list(
             {json.dumps(item, sort_keys=True): item for item in evidence}.values()
