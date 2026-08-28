@@ -1,35 +1,167 @@
 {
-  "schema_version": "1.0",
+  "schema_version": "1.0.0",
   "identity": {
     "stock_code": "2330",
+    "period": "2025Q1",
+    "filing_key": "2330_2025Q1",
     "company_name": "Test Company",
-    "period": "2025Q1"
+    "company_name_zh": "Test Company",
+    "company_name_en": "Test Company",
+    "industry": "Semiconductor",
+    "market": "TWSE"
   },
   "status": "ready",
+  "pipeline_status": "validated",
   "quality": {
     "score": 0.9,
+    "state": "present",
     "missing_fields": [],
-    "validation_failures": []
+    "validation_failures": [
+      {
+        "rule_name": "balance_sheet_equation",
+        "passed": false,
+        "severity": "warning",
+        "message": "Small rounding difference",
+        "checked_at": "2026-08-21T10:00:00Z"
+      }
+    ],
+    "validation_total": 6,
+    "validation_failed": 1,
+    "structured_source_coverage": 0.95
   },
   "freshness": {
+    "state": "current",
     "updated_at": "2026-08-21T10:00:00Z",
-    "is_stale": false
+    "is_stale": false,
+    "latest_source_at": "2026-08-21T09:55:00Z",
+    "stale_after_seconds": 86400
   },
   "snapshot": {
     "net_revenue": 1000,
     "net_income": 200,
     "eps_basic": 2.5,
+    "eps": 2.5,
     "total_assets": 5000,
     "total_liabilities": 2000,
-    "equity": 3000
+    "equity": 3000,
+    "operating_cash_flow": 250
   },
-  "metrics": {},
-  "events": [],
+  "metrics": {"gross_margin": 0.4},
+  "metric_records": [
+    {
+      "name": "gross_margin",
+      "value": 0.4,
+      "unit": "ratio",
+      "formula": "gross_profit/net_revenue",
+      "inputs": {},
+      "confidence": 1.0
+    }
+  ],
+  "events": [
+    {
+      "event_type": "revenue_growth",
+      "severity": "info",
+      "title": "Revenue growth",
+      "description": "Revenue increased",
+      "related_fields": ["net_revenue"],
+      "confidence": 0.9
+    }
+  ],
   "evidence": [
     {
+      "fact_id": 1,
       "field": "net_revenue",
+      "source_document_id": 1,
+      "doc_id": 1,
       "source_type": "xbrl",
-      "confidence": 1.0
+      "page_number": 1,
+      "section_title": "Income statement",
+      "raw_text": "Revenue 1000",
+      "excerpt": "Revenue 1000",
+      "confidence": 1.0,
+      "extraction_method": "xbrl",
+      "source_url": "https://example.test/report.xml",
+      "checksum": "abc123"
+    }
+  ],
+  "facts": [
+    {
+      "id": 1,
+      "field": "net_revenue",
+      "value": 1000,
+      "unit": "TWD_thousands",
+      "statement": "income_statement",
+      "period_start": "2025-01-01",
+      "period_end": "2025-03-31",
+      "period_type": "duration",
+      "source_type": "xbrl",
+      "confidence": 1.0,
+      "xbrl_tag": "Revenue",
+      "evidence": []
+    }
+  ],
+  "field_availability": [
+    {
+      "field": "net_revenue",
+      "statement": "income_statement",
+      "unit": "TWD_thousands",
+      "state": "present",
+      "reason": null
+    }
+  ],
+  "validation": [
+    {
+      "rule_name": "balance_sheet_equation",
+      "passed": false,
+      "severity": "warning",
+      "message": "Small rounding difference",
+      "checked_at": "2026-08-21T10:00:00Z"
+    }
+  ],
+  "comparisons": [
+    {
+      "field": "net_revenue",
+      "compare_type": "yoy",
+      "compare_period": "2024Q1",
+      "current_value": 1000,
+      "prior_value": 900,
+      "change_abs": 100,
+      "change_pct": 11.11,
+      "direction": "up",
+      "significance": "moderate",
+      "interpretation": "Revenue increased"
+    }
+  ],
+  "insight_cards": [
+    {
+      "id": 1,
+      "card_type": "performance_summary",
+      "title": "Performance",
+      "summary": "Stable growth",
+      "data_points": {"net_revenue": 1000},
+      "sentiment": "positive",
+      "confidence": 0.8,
+      "generated_at": "2026-08-21T10:00:00Z"
+    }
+  ],
+  "source_documents": [
+    {
+      "id": 1,
+      "doc_type": "xbrl",
+      "url": "https://example.test/report.xml",
+      "file_size": 1234,
+      "checksum": "abc123",
+      "downloaded_at": "2026-08-21T09:55:00Z",
+      "parse_status": "completed"
+    }
+  ],
+  "pipeline_state": [
+    {
+      "stage": "validate",
+      "status": "completed",
+      "started_at": "2026-08-21T09:59:00Z",
+      "finished_at": "2026-08-21T10:00:00Z",
+      "error_message": null
     }
   ]
 }

@@ -43,6 +43,8 @@ class FinancialDataProvider(Protocol):
 
     def get_job(self, job_id: str) -> dict[str, Any]: ...
 
+    def get_capabilities(self) -> dict[str, Any]: ...
+
 
 class JsonFinancialDataProvider:
     """Read legacy enhanced JSON snapshots from the local filesystem."""
@@ -101,6 +103,14 @@ class JsonFinancialDataProvider:
     def get_job(self, job_id: str) -> dict[str, Any]:
         raise FinancialDataProviderUnavailable("The JSON provider does not support jobs")
 
+    def get_capabilities(self) -> dict[str, Any]:
+        return {
+            "schema_version": "legacy-json",
+            "api_version": None,
+            "source": "json",
+            "operations": ["load_record", "list_available_periods", "list_all_stocks"],
+        }
+
 
 class FinancialReportsProvider:
     """Consume the versioned FinancialReports HTTP API."""
@@ -145,7 +155,10 @@ class FinancialReportsProvider:
 
     @staticmethod
     def _response_object(response: httpx.Response) -> dict[str, Any]:
-        body = response.json()
+        try:
+            body = response.json()
+        except ValueError as exc:
+            raise FinancialDataContractError("FinancialReports returned invalid JSON") from exc
         if not isinstance(body, dict):
             raise FinancialDataContractError("FinancialReports returned a non-object response")
         return body
@@ -178,6 +191,20 @@ class FinancialReportsProvider:
                 source="financial_reports",
                 job_id=body.get("job_id"),
             )
+        if response.status_code == 409:
+            body = self._response_object(response)
+            raw_error = body.get("error")
+            error: dict[str, Any] = raw_error if isinstance(raw_error, dict) else {}
+            if error.get("code") == "filing_not_ready":
+                return SnapshotRecord(
+                    schema_version=str(body.get("schema_version", "1.0.0")),
+                    status="processing",
+                    source="financial_reports",
+                    job_id=body.get("job_id"),
+                )
+            raise FinancialDataContractError(
+                f"FinancialReports rejected the filing state: {error.get('message', response.text)}"
+            )
         if response.status_code == 422:
             raise FinancialDataContractError(f"Invalid stock or period: {response.text}")
         response.raise_for_status()
@@ -188,12 +215,22 @@ class FinancialReportsProvider:
             record = SnapshotRecord(
                 schema_version=str(body.get("schema_version", "1.0")),
                 status=str(body.get("status", "ready")),
+                pipeline_status=body.get("pipeline_status"),
+                identity=body.get("identity"),
                 snapshot=snapshot,
                 quality=body.get("quality", {}),
                 freshness=body.get("freshness", {}),
                 evidence=body.get("evidence", []),
                 metrics=body.get("metrics", {}),
+                metric_records=body.get("metric_records", []),
                 events=body.get("events", []),
+                facts=body.get("facts", []),
+                field_availability=body.get("field_availability", []),
+                validation=body.get("validation", []),
+                comparisons=body.get("comparisons", []),
+                insight_cards=body.get("insight_cards", []),
+                source_documents=body.get("source_documents", []),
+                pipeline_state=body.get("pipeline_state", []),
                 source="financial_reports",
                 job_id=body.get("job_id"),
             )
@@ -242,27 +279,50 @@ class FinancialReportsProvider:
         return FinancialSnapshot(**fields)
 
     def list_available_periods(self, stock_code: str) -> list[str]:
-        response = self._request("GET", f"/v1/stocks/{stock_code}/periods")
-        if response.status_code == 404:
-            return []
-        response.raise_for_status()
-        body = self._response_object(response)
-        return sorted(str(period) for period in body.get("periods", []))
+        periods: list[str] = []
+        offset = 0
+        while True:
+            response = self._request(
+                "GET",
+                f"/v1/stocks/{stock_code}/periods",
+                params={"limit": 100, "offset": offset},
+            )
+            if response.status_code == 404:
+                return []
+            response.raise_for_status()
+            body = self._response_object(response)
+            page = [str(period) for period in body.get("periods", [])]
+            periods.extend(page)
+            total = int((body.get("pagination") or {}).get("total", len(periods)))
+            if not page or len(periods) >= total:
+                return sorted(set(periods))
+            offset += len(page)
 
     def list_all_stocks(self) -> list[str]:
-        response = self._request("GET", "/v1/stocks")
-        response.raise_for_status()
-        body = self._response_object(response)
-        stocks = body.get("stocks", [])
-        return sorted(
-            str(item.get("stock_code")) if isinstance(item, dict) else str(item) for item in stocks
-        )
+        stocks: list[str] = []
+        offset = 0
+        while True:
+            response = self._request("GET", "/v1/stocks", params={"limit": 100, "offset": offset})
+            response.raise_for_status()
+            body = self._response_object(response)
+            page = body.get("stocks", [])
+            stocks.extend(
+                str(item.get("stock_code")) if isinstance(item, dict) else str(item)
+                for item in page
+            )
+            total = int((body.get("pagination") or {}).get("total", len(stocks)))
+            if not page or len(stocks) >= total:
+                return sorted(set(stocks))
+            offset += len(page)
 
     def get_context(
         self, stock_code: str, period: str, question: str | None = None
     ) -> dict[str, Any] | None:
-        params = {"question": question} if question else None
-        response = self._request("GET", f"/v1/filings/{stock_code}/{period}/context", params=params)
+        response = self._request(
+            "GET",
+            f"/v1/filings/{stock_code}/{period}/context",
+            params={"evidence_limit": 50},
+        )
         if response.status_code == 404:
             return None
         response.raise_for_status()
@@ -278,6 +338,11 @@ class FinancialReportsProvider:
         response = self._request("GET", f"/v1/jobs/{job_id}")
         if response.status_code == 404:
             raise FinancialDataContractError(f"Unknown FinancialReports job: {job_id}")
+        response.raise_for_status()
+        return self._response_object(response)
+
+    def get_capabilities(self) -> dict[str, Any]:
+        response = self._request("GET", "/v1/capabilities")
         response.raise_for_status()
         return self._response_object(response)
 
@@ -320,3 +385,9 @@ class FallbackFinancialDataProvider:
 
     def get_job(self, job_id: str) -> dict[str, Any]:
         return self.primary.get_job(job_id)
+
+    def get_capabilities(self) -> dict[str, Any]:
+        try:
+            return self.primary.get_capabilities()
+        except FinancialDataProviderUnavailable:
+            return self.fallback.get_capabilities()

@@ -2,7 +2,7 @@
 
 **Version:** 2.0
 
-**Status date:** 2026-08-22
+**Status date:** 2026-08-24
 
 **Purpose:** Evidence-backed financial statement research and deterministic
 financial analysis.
@@ -66,7 +66,8 @@ between narrow and broad behavior from the request.
 
 ## Current Constraints
 
-- FinancialReports must independently implement and deploy the required v1 API.
+- FinancialReports v1 is implemented and contract-tested but still requires
+  ordered PR review, merge, and deployment.
 - The cache and Agent state are process-local and not durable.
 - No authentication, authorization, rate limiting, or tenant isolation exists.
 - ROIC/WACC and management analyses may rely on explicit defaults/caller input.
@@ -77,15 +78,15 @@ between narrow and broad behavior from the request.
 
 ## Verification Status
 
-The completed implementation passed Black, Python compilation, mypy, and 36
-pytest tests. Coverage includes provider mapping/failures, retry and stale
+The current consumer implementation passes Black, Python compilation, mypy,
+and 40 pytest tests. Coverage includes rich-schema provider mapping/failures, retry and stale
 cache behavior, readiness states, tool contracts, API behavior, and a complete
 multi-tool research workflow. GitNexus reported no circular imports; the final
 cross-layer change affected 34 files, 184 symbols, and 65 processes.
 
 ## Next Engineering Priorities
 
-1. Implement and contract-test the FinancialReports v1 endpoints end to end.
+1. Merge and deploy the ordered FinancialReports PRs, then enable the remote provider.
 2. Add authentication, request limits, durable job state, and shared cache.
 3. Add filing-level citations with document/page links in the UI.
 4. Replace proxy/default inputs with audited cash-flow and market data.

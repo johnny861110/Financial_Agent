@@ -104,9 +104,12 @@ Every provider implements these operations:
 - `get_context(stock_code, period)`
 - `request_refresh(stock_code, period)`
 - `get_job(job_id)`
+- `get_capabilities()`
 
-`SnapshotRecord` carries a normalized `FinancialSnapshot` plus source,
-schema version, quality, freshness, evidence, metrics, events, and status.
+`SnapshotRecord` carries filing identity and a normalized `FinancialSnapshot`
+plus source, schema version, quality, freshness, canonical facts, field
+availability, evidence, metric records, validations, comparisons, insight
+cards, source documents, pipeline state, events, and lifecycle status.
 The legacy `DataLoader` remains as a facade so analysis services keep a stable
 interface while the source changes.
 
@@ -116,15 +119,17 @@ interface while the source changes.
 | --- | --- |
 | Remote transport error or HTTP 5xx | Retry, then use stale cache or JSON fallback when enabled |
 | Remote HTTP 404 | Return missing; never hide it with unrelated local data |
+| Remote HTTP 409 `filing_not_ready` | Return a typed processing record |
 | Remote HTTP 422 or invalid contract | Return a contract error; do not fallback |
 | Cached record past TTL during outage | Return it with `freshness.is_stale=true` |
 | Quality score below threshold | Readiness becomes `low_quality` and Agent confidence is reduced |
 | Remote refresh accepted | Return HTTP 202 and expose the job through `/api/data/jobs/{job_id}` |
 | JSON provider refresh requested | Return HTTP 503 because local files cannot enqueue ingestion |
 
-FinancialReports must expose the six v1 endpoints documented in
-`MODIFICATION_PLAN.md`. Until that service is deployed, `DATA_PROVIDER=json`
-is the supported default.
+FinancialReports implements the versioned endpoints documented in
+`MODIFICATION_PLAN.md`, including schema/capability discovery and batch query.
+Until the ordered producer PRs are reviewed and deployed,
+`DATA_PROVIDER=json` remains the supported default.
 
 ## Agent Layer Architecture
 
