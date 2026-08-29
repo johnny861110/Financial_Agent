@@ -555,6 +555,43 @@ so they have no chunks and no narrative to retrieve. Their numeric path works
 normally. An empty `evidence_chunks` for those is the designed degradation, not
 a fault.
 
+## 7c. Retrieval quality, measured
+
+Querying the real corpus is what produced these; none of it was visible from
+the code or from the deterministic evaluation set, which measures gating and
+citations but says nothing about whether retrieved text answers the question.
+
+Measured over 12 questions across 5 filings: **75% section hit rate, 87%
+discrimination** (distinct top-1 chunk per question, so it is not simply
+returning the same high-importance chunks every time). Inspecting the misses
+mattered more than the number -- several were correct content under a wrong
+section label.
+
+Three findings, in order of how much they cost:
+
+1. **Section filtering hurt and is now off by default.** Compared against plain
+   vector search over 20 question/filing pairs: never better, worse in half,
+   and returned *nothing* three times, which the consumer reports as a data gap
+   that is not real. Cause is upstream: section detection is coarse, putting
+   ~65% of a filing's chunks in one section type, so an auditor's report can be
+   labelled `income_statement`. `use_sections=True` opts back in.
+
+2. **The narrative gate was the wrong shape.** It was an allowlist of narrative
+   topics and missed 7 of 10 realistic questions -- related parties, inventory
+   valuation, employee benefits, EPS computation, subsidiaries, segments,
+   pledged assets -- so no text was retrieved at all. Inverted: retrieve unless
+   the question is plainly numeric, because the structured-fact surface is
+   enumerable while narrative subject matter is not.
+
+3. **25% of the corpus is garbled and scores well.** 4,780 of 19,152 chunks are
+   under 30% letters/CJK -- table-extraction debris like
+   `4 1 . 年 2 2 2 1 4 1 2 1 0 1 1 , , , , %`. Their mean `importance_score` is
+   **0.70 against 0.65 for real prose**, so the fallback ranking actively
+   prefers them, and one scored 0.702 on a genuine question. **Still open.**
+   Two angles: fix table handling in the producer's PDF parsing, and stop the
+   importance heuristic rewarding digit density. A read-time legibility filter
+   would be the same kind of stopgap as the content dedupe.
+
 ## 8. Verification Commands
 
 ### Financial_Agent
