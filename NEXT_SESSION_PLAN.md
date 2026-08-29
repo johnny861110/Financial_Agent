@@ -400,14 +400,25 @@ cross-repository smoke CI, and corpus embedding. See "Corpus state" below.
 
 Immediate next work (first task for the next session):
 
-**Phase F: evaluation set and production controls.** Everything upstream of it
-is now in place — canonical facts, deterministic tool gating, question-directed
-retrieval with citations, and a UI that renders all three. What is missing is
-the ability to say whether any of it is *good*: a fixed evaluation set over
-complete, partial, stale, invalid, processing and narrative-heavy filings, and
-measurement of citation coverage, unsupported-claim rate, tool-gating accuracy,
-contradiction recall and verdict stability. Then the production controls
-(authentication, rate limits, request IDs, durable jobs, shared cache).
+**Phase F, second half: production controls.** The evaluation half is done —
+`evaluation/` holds nine scenarios spanning complete, partial, not_applicable,
+stale, invalid, processing, absent, narrative-heavy and contradiction, with
+tool-gating accuracy, citation coverage and contradiction recall all currently
+exact and gated by `tests/test_evaluation.py`. Run a report with
+`python -m evaluation`.
+
+What remains: authentication, rate limits, request IDs, durable jobs and a
+shared cache, none of which exist yet. The service should not be treated as
+production-ready without them.
+
+**Unsupported-claim rate is still unmeasured**, and deliberately so. It is a
+property of generated prose, so it needs a model or a human to judge; adding it
+to the deterministic set would have meant inventing a proxy and then trusting
+the proxy. It needs a separate harness that runs against a real model with
+`LLM_ENABLED=true`, comparing each claim in the answer against the report and
+the retrieved passages. That is the highest-value thing still missing from
+evaluation, because it is the measure that would catch the agent asserting
+something no evidence supports.
 
 Two smaller items worth knowing about:
 
