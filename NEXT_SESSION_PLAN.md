@@ -256,9 +256,12 @@ required field/unit, and retain the public response shape.
 - [x] Add CI for Financial_Agent's own gates (`.github/workflows/ci.yml`:
       pytest, mypy, black, compileall across Python 3.10/3.11/3.12, plus a
       `uv lock --check` job for dependency drift).
-- [ ] Extend CI to a smoke job spanning **both** repositories (needs a
-      FinancialReports server running in the job; the single-repo gate above
-      is the prerequisite, not a replacement).
+- [x] Extend CI to a smoke job spanning **both** repositories
+      (`.github/workflows/cross-repo-smoke.yml`): checks out FinancialReports
+      alongside this repository, starts it against a pgvector service
+      container, and runs `tests/test_producer_smoke.py` over HTTP. Also runs
+      weekly, since the producer can break the contract without this
+      repository changing.
 - [ ] Deploy to a named production/staging target when one is provided.
 
 Acceptance criteria:
