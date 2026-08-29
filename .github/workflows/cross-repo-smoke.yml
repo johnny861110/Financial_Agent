@@ -1,0 +1,98 @@
+name: Cross-repo smoke
+
+# Every other test mocks the producer, which only proves the consumer handles
+# the shape it expects. This starts a real FinancialReports build and talks to
+# it over HTTP, so a producer contract change fails here rather than in
+# production.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  # The producer can break the contract without this repository changing, so
+  # also run on a schedule rather than only on our own commits.
+  schedule:
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+
+    services:
+      db:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: financial
+          POSTGRES_PASSWORD: financial
+          POSTGRES_DB: financial
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U financial -d financial"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - name: Check out the consumer
+        uses: actions/checkout@v4
+
+      - name: Check out the producer
+        uses: actions/checkout@v4
+        with:
+          repository: johnny861110/FinancialReports
+          path: producer
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "latest"
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Install the producer
+        working-directory: producer
+        run: uv sync --frozen
+
+      - name: Start the producer
+        working-directory: producer
+        env:
+          FR_DATABASE_URL: postgresql+psycopg://financial:financial@localhost:5432/financial
+        run: |
+          uv run uvicorn src.api.app:create_app --factory \
+            --host 127.0.0.1 --port 8010 > producer.log 2>&1 &
+          for _ in $(seq 1 60); do
+            if curl -sf http://127.0.0.1:8010/health/ready >/dev/null; then
+              echo "producer ready"; exit 0
+            fi
+            sleep 2
+          done
+          echo "producer failed to become ready"; cat producer.log; exit 1
+
+      - name: Install the consumer
+        run: uv sync --extra dev --frozen
+
+      - name: Smoke test the contract
+        env:
+          FINANCIAL_REPORTS_BASE_URL: http://127.0.0.1:8010
+          # A skipped smoke test is indistinguishable from a passing one, so
+          # make skips fail: the point is to prove the producer was reachable.
+          PYTEST_ADDOPTS: "-p no:randomly"
+        run: uv run pytest tests/test_producer_smoke.py -v --no-header -rs
+
+      - name: Fail if nothing actually ran
+        run: |
+          count=$(uv run pytest tests/test_producer_smoke.py --collect-only -q 2>/dev/null \
+            | grep -c "test_" || true)
+          if [ "$count" -eq 0 ]; then
+            echo "no smoke tests were collected"; exit 1
+          fi
+          echo "$count smoke tests collected"
+
+      - name: Producer log on failure
+        if: failure()
+        run: cat producer/producer.log || true
