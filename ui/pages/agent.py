@@ -7,6 +7,13 @@ import httpx
 
 from app.core.config import get_settings
 from app.models.agent_models import AgentQuery, AgentResponse
+from ui.presentation import (
+    blocked_tools,
+    group_field_states,
+    pipeline_view,
+    split_data_gaps,
+    split_evidence,
+)
 
 
 def query_agent_api(query: AgentQuery) -> AgentResponse:
@@ -19,6 +26,71 @@ def query_agent_api(query: AgentQuery) -> AgentResponse:
     )
     response.raise_for_status()
     return AgentResponse.model_validate(response.json())
+
+
+def render_pipeline_state(response: AgentResponse) -> None:
+    """Show processing state, calling out a failed pipeline stage."""
+    readiness = (response.data or {}).get("data_readiness", {})
+    if not readiness:
+        return
+    view = pipeline_view(readiness, (response.data or {}).get("record"))
+
+    label = f"Data state: **{view.status}**"
+    if view.has_failure:
+        st.error(f"{label} — pipeline stage `{view.failed_stage}` failed")
+    elif view.status in {"stale", "low_quality", "processing"}:
+        st.warning(label)
+    else:
+        st.caption(label)
+
+    if view.stage_states:
+        with st.expander("Pipeline stages"):
+            for stage, state in view.stage_states:
+                icon = {"completed": "✅", "failed": "❌", "started": "⏳"}.get(state, "•")
+                st.markdown(f"{icon} `{stage}` — {state}")
+
+    states = group_field_states(readiness.get("field_states") or {})
+    if states:
+        with st.expander("Field availability"):
+            for group in states:
+                st.markdown(f"{group.icon} **{group.description}** — {', '.join(group.fields)}")
+
+
+def render_blocked_tools(response: AgentResponse) -> None:
+    """Explain any tool the planner refused to run, field by field."""
+    blocked = blocked_tools((response.data or {}).get("tools", {}))
+    if not blocked:
+        return
+    with st.expander(f"⛔ {len(blocked)} analysis step(s) could not run", expanded=True):
+        for item in blocked:
+            st.markdown(f"**{item.tool}**")
+            for reason in item.reasons():
+                st.markdown(f"- {reason}")
+
+
+def render_citations(response: AgentResponse) -> None:
+    """Render filing passages as followable sources, facts as structured data."""
+    citations, structured = split_evidence(response.evidence)
+
+    if citations:
+        with st.expander(f"📄 Filing sources ({len(citations)})", expanded=True):
+            for citation in citations:
+                if citation.is_linkable:
+                    header = f"[{citation.label}]({citation.url})"
+                else:
+                    header = citation.label
+                if citation.score is not None:
+                    header += f" · relevance {citation.score:.2f}"
+                st.markdown(header)
+                if citation.excerpt:
+                    st.caption(citation.excerpt)
+                if citation.detail:
+                    st.caption(f"↳ {citation.detail}")
+                st.markdown("---")
+
+    if structured:
+        with st.expander(f"🔢 Structured evidence ({len(structured)})"):
+            st.json(structured)
 
 
 def show():
@@ -70,7 +142,7 @@ def show():
         st.info(
             """
         The agent can help with:
-        
+
         📊 Financial Snapshot
         📈 Trend Analysis
         🔄 Peer Comparison
@@ -179,18 +251,34 @@ def show():
                             "Confidence", f"{response.confidence_score * 100:.0f}%"
                         )
 
-                    if response.risks or response.contradictions or response.data_gaps:
+                    render_pipeline_state(response)
+                    render_blocked_tools(response)
+
+                    validation_gaps, ordinary_gaps = split_data_gaps(response.data_gaps)
+                    if (
+                        response.risks
+                        or response.contradictions
+                        or validation_gaps
+                        or ordinary_gaps
+                    ):
                         with st.expander("Research Risks and Data Gaps", expanded=True):
+                            # Validation failures mean the producer believes a
+                            # number is wrong, which is a different problem from
+                            # a field simply being absent.
+                            if validation_gaps:
+                                st.markdown("**Validation failures**")
+                                for item in validation_gaps:
+                                    st.error(item)
                             for risk in response.risks:
                                 st.warning(risk)
                             for contradiction in response.contradictions:
                                 st.warning(f"Contradiction: {contradiction}")
-                            for gap in response.data_gaps:
-                                st.info(f"Data gap: {gap}")
+                            if ordinary_gaps:
+                                st.markdown("**Data gaps**")
+                                for gap in ordinary_gaps:
+                                    st.info(gap)
 
-                    if response.evidence:
-                        with st.expander("Evidence"):
-                            st.json(response.evidence)
+                    render_citations(response)
 
                     # Display analysis steps if available
                     analysis_steps = (

@@ -1,9 +1,53 @@
 """Financial Snapshot page."""
 
 import streamlit as st
+
+from ui.presentation import group_field_states
 import pandas as pd
 import plotly.graph_objects as go
 from ui.api_client import api_request
+
+
+def render_data_context(context: dict) -> None:
+    """Show where the numbers came from and which of them are absent.
+
+    A blank cell in the tables above can mean the filer does not report the
+    field, the producer failed to supply it, or it is genuinely null. Those are
+    different situations and the snapshot should say which.
+    """
+    if not context:
+        return
+
+    st.markdown("---")
+    st.subheader("🧾 Data Context")
+
+    columns = st.columns(3)
+    columns[0].metric("Schema", str(context.get("schema_version") or "unknown"))
+    columns[1].metric("Status", str(context.get("status") or "unknown"))
+    quality = context.get("quality_score")
+    columns[2].metric("Quality", f"{quality:.2f}" if isinstance(quality, (int, float)) else "n/a")
+
+    if context.get("is_stale"):
+        st.warning("This filing is stale — a newer source may exist.")
+
+    failures = context.get("failed_validations") or []
+    if failures:
+        # Validation failures are not warnings: the producer is reporting that
+        # a number did not reconcile.
+        st.error(f"{len(failures)} validation rule(s) failed")
+        for failure in failures:
+            rule = failure.get("rule_name", "rule") if isinstance(failure, dict) else str(failure)
+            message = failure.get("message") if isinstance(failure, dict) else None
+            st.markdown(f"- **{rule}**" + (f" — {message}" if message else ""))
+
+    groups = group_field_states(context.get("field_states") or {})
+    absent = [group for group in groups if group.state != "present"]
+    if absent:
+        st.markdown("**Fields not available**")
+        for group in absent:
+            st.markdown(f"{group.icon} **{group.description}** — {', '.join(group.fields)}")
+    elif groups:
+        st.success("All requested fields are present.")
 
 
 def show():
@@ -207,6 +251,8 @@ def display_snapshot_results(result):
     )
 
     st.dataframe(income_df, use_container_width=True, hide_index=True)
+
+    render_data_context(result.get("data_context") or {})
 
     # Download option
     st.markdown("---")
