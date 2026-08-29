@@ -395,22 +395,30 @@ paths never surface), missing/null/not_applicable/provider_failure read
 differently, validation failures are separated from ordinary gaps, blocked
 tools explain themselves field by field, and a failed pipeline stage is named.
 
-Immediate next work (first task for the next session), in priority order:
+**Done since:** the ingestion duplication, the full re-ingest, the
+cross-repository smoke CI, and corpus embedding. See "Corpus state" below.
 
-1. **Fix the ingestion duplication.** 323,338 of 342,174 chunks (94%) are
-   redundant copies. Retrieval deduplicates at read time, which makes the
-   corpus usable, but embedding still wastes ~18x the compute and the storage
-   is wasted outright. This needs a pipeline fix plus a re-ingest.
-2. **Embed the full corpus.** Only ~420 chunks of one filing are embedded, as
-   a verification sample. Everything else falls back to importance ordering.
-   Do (1) first or most of the work is thrown away.
-3. **Phase A's cross-repository smoke CI**, still open: it needs a
-   FinancialReports service running inside the job.
-4. Phase F: evaluation set and production controls.
+Immediate next work (first task for the next session):
 
-The `blocked_fields`/`failed_rules` that Phase C added to `ToolResult` are not
-yet surfaced in the UI — that is Phase E's job, and it now has real data to
-render.
+**Phase F: evaluation set and production controls.** Everything upstream of it
+is now in place — canonical facts, deterministic tool gating, question-directed
+retrieval with citations, and a UI that renders all three. What is missing is
+the ability to say whether any of it is *good*: a fixed evaluation set over
+complete, partial, stale, invalid, processing and narrative-heavy filings, and
+measurement of citation coverage, unsupported-claim rate, tool-gating accuracy,
+contradiction recall and verdict stability. Then the production controls
+(authentication, rate limits, request IDs, durable jobs, shared cache).
+
+Two smaller items worth knowing about:
+
+- `get_context` raises on a producer 409 while `load_record` returns a typed
+  state. That is consistent with the guardrail against silently absorbing
+  producer contract errors, so it was left alone, but a caller has to know it.
+- The embedding model and dimension are pinned together in
+  `src/agent/embedding.py` (`BAAI/bge-base-zh-v1.5`, 768) and asserted at
+  encode time against `VECTOR(768)` in `schema.sql`. Changing one without the
+  other fails loudly rather than corrupting the index — but both must move
+  together, and existing embeddings must be regenerated.
 
 ### Phase D: Filing Text Retrieval
 
@@ -487,6 +495,54 @@ docs: update rich-schema utilization architecture
 
 Run GitNexus impact analysis before each shared-model or provider change. Update
 the `financial-platform` group after either repository is re-indexed.
+
+## 7b. Corpus state
+
+The producer's corpus lives in the local `financialreports_pgdata` Docker
+volume. It is not committed and not deployed anywhere, so these numbers
+describe one machine.
+
+| | before | after |
+| --- | --- | --- |
+| chunks | 342,174 | **19,152** |
+| distinct content | 18,836 | **18,836** |
+| filings with duplicates | 61 | **0** |
+| filings `insight_ready` | 55 | **71** |
+
+The distinct-content count is unchanged, which is the point: the 323,022 rows
+removed were all redundant copies, not content. Two independent bugs produced
+them and both are fixed at source (FinancialReports PR #6 and #7), so a
+re-ingest no longer reintroduces them.
+
+**A trap worth not repeating.** Re-ingesting with `fr extract --force` alone
+resets a filing to `extracted`, which strips its validated and insight output
+and makes the API answer 409 for it. Always re-ingest through the pipeline:
+
+```bash
+uv run fr run <stock> <year> <Qn> --stages extract,validate,insights --force
+```
+
+Embeddings are generated with `fr embed` (needs `uv sync --extra vector`), which
+skips already-embedded chunks and so is resumable. **All 19,152 chunks are
+embedded** with `BAAI/bge-base-zh-v1.5`. On an RTX 3060 laptop that took 26
+minutes at roughly 770 chunks/minute -- GPU-bound at 100% utilisation, so a
+smaller model is the lever if this needs to be faster. A filing with no
+embeddings is not broken: retrieval falls back to importance ordering, so a
+partial run degrades rather than fails.
+
+Retrieval was spot-checked across the corpus with Traditional Chinese questions
+and returns semantically correct passages -- "公司面臨哪些主要風險" lands on the
+risk section's risk-management policy at 0.65, "會計政策有什麼變更" on the IFRS
+adoption paragraphs. Note those accounting-policy hits come back tagged
+`income_statement`/`cash_flow` rather than `accounting_policy`, because that is
+genuinely where the text sits in these filings; vector search finds it
+regardless of the section label, which is why `sections` is a filter and not the
+ranking mechanism.
+
+**5 of 71 filings have no source document at all** (XBRL figures only, no PDF),
+so they have no chunks and no narrative to retrieve. Their numeric path works
+normally. An empty `evidence_chunks` for those is the designed degradation, not
+a fault.
 
 ## 8. Verification Commands
 
