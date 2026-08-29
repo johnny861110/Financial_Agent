@@ -439,11 +439,17 @@ class FinancialAgent:
         state["contradictions"] = self._detect_contradictions(state["tool_results"])
         report = self._build_research_report(state)
         state["report"] = report.model_dump(mode="json")
+        readiness_payload = dict(state.get("data_readiness", {}))
+        # Surface the per-field states the gate decided on, so a client can
+        # show why a tool was blocked rather than only that it was.
+        readiness_payload["field_states"] = state.get("field_states", {})
+        readiness_payload["failed_rules"] = state.get("failed_rules", [])
         state["analysis_data"] = {
             "success": bool(report.findings),
             "status": "success" if report.findings else "insufficient_data",
-            "data_readiness": state.get("data_readiness", {}),
+            "data_readiness": readiness_payload,
             "tools": state["tool_results"],
+            "filing_text": state.get("filing_text", {}),
             "report": state["report"],
         }
         return state
