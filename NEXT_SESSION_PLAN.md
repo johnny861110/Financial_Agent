@@ -14,12 +14,17 @@ here — merged PRs carry that.
 | --- | --- | --- |
 | repo | `johnny861110/Financial_Agent` | `johnny861110/FinancialReports` |
 | local | `/mnt/c/Users/johnn/GITHUB_REPO/Financial_Agent` | `/mnt/c/Users/johnn/GITHUB_REPO/FinancialReports` |
-| `main` | `59842f0` | `ada859c` |
+| latest merged PR | #15 | #7 |
 | tests | 138 | 99 |
 | CI | gates + cross-repo smoke, green | gates on 3.10/3.11/3.12, green |
 
-Both repos are clean, synchronized `0/0`, and carry only `main`. Confirm with
-`git rev-parse HEAD origin/main` at session start rather than trusting these.
+Both repos are clean, synchronized `0/0`, and carry only `main`. PR numbers are
+used rather than commit SHAs because any SHA written here is stale the moment
+the file is committed. Confirm the real state at session start:
+
+```bash
+git rev-parse HEAD origin/main && git status --short
+```
 
 **Do not delete or commit these pre-existing untracked paths.** They are not
 this project's to manage:
