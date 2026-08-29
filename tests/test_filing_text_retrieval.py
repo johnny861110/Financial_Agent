@@ -10,6 +10,7 @@ from app.agents.retrieval import (
     RetrievedContext,
     bound_chunks,
     citation,
+    is_numeric_question,
     narrative_topics,
     retrieve,
 )
@@ -65,8 +66,37 @@ class RecordingProvider:
         ("what are the main risks", ["risk"]),
     ],
 )
-def test_narrative_questions_are_recognised(query, expected):
+def test_narrative_topics_map_to_sections(query, expected):
+    """Topics still drive optional section filtering, not the retrieval gate."""
     assert narrative_topics(query) == expected
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "關係人交易的情形",
+        "存貨的評價方式",
+        "員工福利與退休金的認列",
+        "子公司的組成",
+        "營運部門資訊",
+        "質押的資產",
+        "公司面臨哪些風險",
+    ],
+)
+def test_narrative_questions_reach_retrieval(query):
+    """Regression: an allowlist of narrative topics missed 7 of these 10.
+
+    The gate is now inverted -- retrieve unless the question is plainly
+    numeric -- because narrative subject matter is unbounded while the
+    structured-fact surface is enumerable.
+    """
+    assert not is_numeric_question(query)
+
+    provider = RecordingProvider()
+    context = retrieve(provider, "2330", "2025Q1", query)
+
+    assert provider.calls, f"{query} should have reached the provider"
+    assert context.used
 
 
 @pytest.mark.parametrize(
@@ -76,11 +106,12 @@ def test_narrative_questions_are_recognised(query, expected):
         "毛利率趨勢如何",
         "ROIC 和 WACC 的差距",
         "跟同業比較 EPS",
+        "每股盈餘如何計算",
     ],
 )
 def test_numeric_questions_do_not_trigger_retrieval(query):
     """Numeric questions must stay on the structured-fact path."""
-    assert narrative_topics(query) == []
+    assert is_numeric_question(query)
 
     provider = RecordingProvider()
     context = retrieve(provider, "2330", "2025Q1", query)
@@ -90,7 +121,14 @@ def test_numeric_questions_do_not_trigger_retrieval(query):
     assert context.error is None
 
 
-def test_narrative_question_requests_only_relevant_sections():
+def test_narrative_question_retrieves_without_narrowing_by_section():
+    """Section filtering is off by default because it measurably hurt.
+
+    Compared against plain vector search over 20 question/filing pairs on the
+    real corpus, filtering was never better, was worse in half, and returned
+    nothing three times -- which surfaces as a data gap that is not real. The
+    producer's section labels are too coarse to filter on.
+    """
     provider = RecordingProvider()
 
     context = retrieve(provider, "2330", "2025Q1", "公司面臨哪些風險")
@@ -98,10 +136,19 @@ def test_narrative_question_requests_only_relevant_sections():
     assert len(provider.calls) == 1
     call = provider.calls[0]
     assert call["question"] == "公司面臨哪些風險"
-    assert call["sections"] == ["risk"]
-    # Numeric sections are never requested: the fact path answers those better.
-    assert "income_statement" not in (call["sections"] or [])
+    assert call["sections"] is None, "a section filter can exclude correct text"
     assert context.used
+
+
+def test_section_filtering_remains_available_when_asked_for():
+    """The mapping is still right once labels are trustworthy."""
+    provider = RecordingProvider()
+
+    retrieve(provider, "2330", "2025Q1", "公司面臨哪些風險", use_sections=True)
+
+    assert provider.calls[0]["sections"] == ["risk"]
+    # Numeric sections are never requested: the fact path answers those better.
+    assert "income_statement" not in provider.calls[0]["sections"]
 
 
 def test_chunk_count_is_bounded():

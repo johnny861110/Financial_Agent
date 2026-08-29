@@ -14,10 +14,23 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-# Producer section types worth retrieving, keyed by the narrative topic a
-# question is about. Sections outside this map (income_statement, balance_sheet,
-# eps_note...) restate numbers that the structured-fact path already answers
-# better, so they are never requested.
+# Narrative topic -> producer section types.
+#
+# NOT applied as a retrieval filter by default, and that is a measured
+# decision rather than a preference. Filtering was compared against plain
+# vector search over 20 question/filing pairs on the real corpus: it was never
+# better, was worse in half of them, and returned *nothing* three times --
+# which the consumer would then report as "no filing text matched", a data gap
+# that is not real.
+#
+# The cause is upstream: the producer's section detection is coarse, putting
+# about 65% of a filing's chunks into a single section type, so a chunk whose
+# text is plainly an auditor's report can be labelled income_statement. Vector
+# search finds that text regardless of the label; a section filter excludes it.
+#
+# Kept because the mapping is still the right one once labels are trustworthy,
+# and `sections` remains a supported producer parameter. Pass
+# `use_sections=True` to opt back in.
 NARRATIVE_SECTIONS: dict[str, tuple[str, ...]] = {
     "accounting_policy": ("accounting_policy", "notes"),
     "risk": ("risk",),
@@ -25,8 +38,63 @@ NARRATIVE_SECTIONS: dict[str, tuple[str, ...]] = {
     "notes": ("notes",),
 }
 
-# Terms that mark a question as being about narrative content rather than a
-# number. Traditional Chinese first, since that is what filings are written in.
+# Deciding whether a question needs filing text.
+#
+# This was originally an allowlist of narrative topics, which failed badly:
+# measured against realistic questions, 7 of 10 -- related-party transactions,
+# inventory valuation, employee benefits, EPS computation, subsidiaries,
+# segments, pledged assets -- were not recognised as narrative at all, so no
+# text was retrieved and the answer was numbers only.
+#
+# The list was not too small; it was the wrong shape. Narrative subject matter
+# is unbounded, but the questions answerable from structured facts are not:
+# they are the canonical fields and the deterministic tools, which are
+# enumerable. So the test is inverted -- retrieve unless the question is
+# plainly numeric.
+#
+# The two failure modes are not symmetric. Over-retrieving costs some bounded,
+# cited prompt space while the structured path still runs; under-retrieving
+# loses the evidence entirely and silently. Failing toward retrieval is right.
+NUMERIC_TERMS: tuple[str, ...] = (
+    "營收",
+    "收入",
+    "毛利",
+    "營業利益",
+    "淨利",
+    "每股盈餘",
+    "eps",
+    "總資產",
+    "負債總額",
+    "股東權益",
+    "現金流量",
+    "週轉",
+    "比率",
+    "利潤率",
+    "margin",
+    "roe",
+    "roa",
+    "roic",
+    "wacc",
+    "負債比",
+    "趨勢",
+    "成長",
+    "比較",
+    "同業",
+    "因子",
+    "預警",
+    "資本配置",
+    "估值",
+    "trend",
+    "growth",
+    "compare",
+    "peer",
+    "factor",
+    "valuation",
+)
+
+# Topic -> producer section types, used only when section filtering is opted
+# into, and to document which sections carry narrative rather than restated
+# figures.
 NARRATIVE_TERMS: dict[str, tuple[str, ...]] = {
     "accounting_policy": (
         "會計政策",
@@ -108,8 +176,18 @@ class RetrievedContext:
         }
 
 
+def is_numeric_question(query: str) -> bool:
+    """True when a question is answerable from canonical facts alone."""
+    lowered = query.lower()
+    return any(term in lowered for term in NUMERIC_TERMS)
+
+
 def narrative_topics(query: str) -> list[str]:
-    """Return the narrative topics a question touches, if any."""
+    """Narrative topics a question touches, for optional section filtering.
+
+    This no longer decides *whether* to retrieve -- see NUMERIC_TERMS above.
+    An empty result only means no section mapping applies.
+    """
     lowered = query.lower()
     return [
         topic for topic, terms in NARRATIVE_TERMS.items() if any(term in lowered for term in terms)
@@ -155,17 +233,24 @@ def retrieve(
     stock_code: str,
     period: str,
     query: str,
+    *,
+    use_sections: bool = False,
 ) -> RetrievedContext:
     """Retrieve narrative text for a question, or nothing if it is numeric.
+
+    Topic classification still decides *whether* to retrieve -- numeric
+    questions never reach the producer. What it no longer does by default is
+    narrow the search to those topics' sections; see NARRATIVE_SECTIONS for the
+    measurement behind that.
 
     Never raises: retrieval failure degrades to a structured data-gap note
     rather than failing the whole research run.
     """
-    topics = narrative_topics(query)
-    if not topics:
+    if not query or is_numeric_question(query):
         return RetrievedContext(question=query)
 
-    sections = sections_for(topics)
+    topics = narrative_topics(query)
+    sections = sections_for(topics) if use_sections else []
     context = RetrievedContext(question=query, topics=topics, sections=sections)
 
     getter = getattr(provider, "get_context", None)
@@ -178,7 +263,7 @@ def retrieve(
             stock_code,
             period,
             query,
-            sections=sections,
+            sections=sections or None,
             evidence_limit=MAX_CHUNKS * 2,
         )
     except TypeError:
