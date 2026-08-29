@@ -58,7 +58,8 @@ flowchart LR
 | Streamlit | Analyst interaction and visualization | Direct data/service access |
 
 The UI always calls FastAPI. Financial Agent and FinancialReports communicate
-through a versioned HTTP contract; they must not share a SQLite database file.
+through a versioned HTTP contract; Financial Agent never connects to the
+producer's database, which is PostgreSQL with pgvector and runs in containers.
 The LLM and Langfuse are optional. With no LLM key, deterministic routing and
 report composition remain available.
 
