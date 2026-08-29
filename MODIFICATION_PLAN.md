@@ -13,11 +13,12 @@ quality, validation, evidence, and basic period comparisons. Financial_Agent
 owns higher-order analytics, research planning, tool orchestration, and final
 investment-research responses.
 
-**Implementation status:** Financial Agent 2.0 was completed on 2026-08-22.
-The complete FinancialReports v1 producer and rich-schema consumer changes were
-implemented and contract-tested on 2026-08-24. The ordered producer and consumer
-pull requests were merged and validated together on 2026-08-28. Production
-deployment remains environment-specific. The implemented system, data-layer,
+**Implementation status:** the migration this plan describes is complete as of
+2026-08-29. All eight filing-reading services run on the canonical context,
+Agent tools declare schema-aware eligibility, and question-directed filing-text
+retrieval ships with citations. The producer moved from SQLite to PostgreSQL +
+pgvector in containers to support it. Production deployment and the Phase F
+production controls remain open; see `NEXT_SESSION_PLAN.md` for what is next. The implemented system, data-layer,
 and Agent-layer diagrams are maintained in `ARCHITECTURE.md`.
 
 Canonical context phase B started on 2026-08-28. The shared context model and
@@ -143,10 +144,10 @@ MOPS / XBRL / iXBRL / PDF / FinMind
 - [x] Migrate trend analysis without adding zero observations for missing data.
 - [x] Add tests for `not_applicable`, unit mismatch, validation filtering, and
   producer metric use.
-- [ ] Migrate earnings quality, EWS, ROIC/WACC, capital allocation, peer, and
+- [x] Migrate earnings quality, EWS, ROIC/WACC, capital allocation, peer, and
   factor services.
-- [ ] Add schema-aware eligibility declarations to Agent tool contracts.
-- [ ] Add question-directed filing-text retrieval and citations.
+- [x] Add schema-aware eligibility declarations to Agent tool contracts.
+- [x] Add question-directed filing-text retrieval and citations.
 
 ## FinancialReports API Contract
 
