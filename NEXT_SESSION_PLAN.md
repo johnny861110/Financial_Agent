@@ -384,10 +384,26 @@ decision, not an engineering one. The machinery is live and covered by tests
 that override one tool's declaration, so opting a tool in is a one-line change
 rather than new plumbing.
 
-Immediate next work (first task for the next session): Phase E (citation and
-pipeline UI). Phase C's `blocked_fields`/`failed_rules` and Phase D's cited
-filing chunks both now reach the report with real data, and neither is rendered
-anywhere in the UI yet.
+**Phase E (citation and pipeline UI) is complete.** `ui/presentation.py` holds
+the display logic as pure functions with no Streamlit import, so it is testable
+in CI; the pages render on top of it. Filing passages appear as followable
+sources (document URL is the citation; database ids are a detail line; local
+paths never surface), missing/null/not_applicable/provider_failure read
+differently, validation failures are separated from ordinary gaps, blocked
+tools explain themselves field by field, and a failed pipeline stage is named.
+
+Immediate next work (first task for the next session), in priority order:
+
+1. **Fix the ingestion duplication.** 323,338 of 342,174 chunks (94%) are
+   redundant copies. Retrieval deduplicates at read time, which makes the
+   corpus usable, but embedding still wastes ~18x the compute and the storage
+   is wasted outright. This needs a pipeline fix plus a re-ingest.
+2. **Embed the full corpus.** Only ~420 chunks of one filing are embedded, as
+   a verification sample. Everything else falls back to importance ordering.
+   Do (1) first or most of the work is thrown away.
+3. **Phase A's cross-repository smoke CI**, still open: it needs a
+   FinancialReports service running inside the job.
+4. Phase F: evaluation set and production controls.
 
 The `blocked_fields`/`failed_rules` that Phase C added to `ToolResult` are not
 yet surfaced in the UI — that is Phase E's job, and it now has real data to
