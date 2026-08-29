@@ -20,10 +20,22 @@ from app.data.providers import FinancialReportsProvider
 
 BASE_URL = os.getenv("FINANCIAL_REPORTS_BASE_URL")
 
+# CI seeds a filing before running this, so "no data" there means the seed
+# failed. A skip would look identical to a pass, which is the failure mode this
+# whole job exists to catch, so it becomes an error instead.
+REQUIRE_DATA = bool(os.getenv("SMOKE_REQUIRE_DATA"))
+
 pytestmark = pytest.mark.skipif(
     not BASE_URL,
     reason="FINANCIAL_REPORTS_BASE_URL is not set; no producer to smoke test against",
 )
+
+
+def _no_data(reason: str) -> None:
+    """Skip locally, fail where the environment promised data."""
+    if REQUIRE_DATA:
+        pytest.fail(f"{reason} (SMOKE_REQUIRE_DATA is set, so this is a failure)")
+    pytest.skip(reason)
 
 
 @pytest.fixture(scope="module")
@@ -86,15 +98,15 @@ def test_context_accepts_the_retrieval_parameters(provider):
             return
 
     if not attempted:
-        pytest.skip("producer has no filings loaded")
-    pytest.skip(f"no ready filing among {attempted} tried")
+        _no_data("producer has no filings loaded")
+    _no_data(f"no ready filing among {attempted} tried")
 
 
 def test_snapshot_round_trips_into_the_consumer_record_model(provider):
     """The producer's payload must parse into SnapshotRecord unchanged."""
     stocks = provider.list_all_stocks()
     if not stocks:
-        pytest.skip("producer has no filings loaded")
+        _no_data("producer has no filings loaded")
 
     for stock in stocks[:5]:
         for period in provider.list_available_periods(stock)[-2:]:
@@ -106,4 +118,4 @@ def test_snapshot_round_trips_into_the_consumer_record_model(provider):
             assert record.identity.stock_code == stock
             return
 
-    pytest.skip("no ready filing found to round-trip")
+    _no_data("no ready filing found to round-trip")

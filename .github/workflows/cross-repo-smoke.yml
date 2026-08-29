@@ -19,6 +19,7 @@ on:
 jobs:
   smoke:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
 
     services:
       db:
@@ -34,6 +35,10 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
+
+    env:
+      FR_DATABASE_URL: postgresql+psycopg://financial:financial@localhost:5432/financial
+      FINANCIAL_REPORTS_BASE_URL: http://127.0.0.1:8010
 
     steps:
       - name: Check out the consumer
@@ -58,15 +63,49 @@ jobs:
         working-directory: producer
         run: uv sync --frozen
 
+      # Without a filing the contract tests that matter -- retrieval and the
+      # snapshot round-trip -- skip, and the job proves almost nothing. This
+      # seeds one ready filing with facts, a section and chunks, using the
+      # producer's own store so the schema stays the producer's business.
+      - name: Seed one filing
+        working-directory: producer
+        run: |
+          uv run python - <<'PY'
+          from src.domain.identity import FilingIdentity
+          from src.domain.models import Fact
+          from src.storage.store import FilingStore
+
+          store = FilingStore()
+          identity = FilingIdentity(stock_code="2330", year=2025, quarter="Q1")
+          company_id = store.upsert_company("2330", name_zh="台積電")
+          filing_id = store.upsert_filing(identity, company_id)
+          store.save_facts_bulk(filing_id, [
+              Fact(filing_key=identity.filing_key, field="net_revenue",
+                   value=1000.0, source_type="xbrl", xbrl_tag="Revenue"),
+              Fact(filing_key=identity.filing_key, field="eps_basic", value=2.5,
+                   unit="TWD_per_share", source_type="xbrl", xbrl_tag="EPS"),
+          ])
+          doc_id = store.save_source_doc(
+              filing_id, "pdf", "/tmp/seed.pdf", "https://example.com/seed.pdf", 1
+          )
+          section_id = store.save_section(doc_id, "risk", "風險因素", 1, 2, "風險章節")
+          store.save_chunk(doc_id, section_id, 1, 0, "本公司面臨利率與匯率風險。",
+                           importance_score=0.9)
+          store.update_filing_status(filing_id, "insight_ready")
+          print("seeded", identity.filing_key)
+          PY
+
       - name: Start the producer
         working-directory: producer
-        env:
-          FR_DATABASE_URL: postgresql+psycopg://financial:financial@localhost:5432/financial
         run: |
-          uv run uvicorn src.api.app:create_app --factory \
-            --host 127.0.0.1 --port 8010 > producer.log 2>&1 &
+          # setsid detaches the server from this step's process group. Without
+          # it the runner waits on the lingering child during post-job cleanup
+          # and the job fails minutes after the tests have already passed.
+          setsid nohup uv run uvicorn src.api.app:create_app --factory \
+            --host 127.0.0.1 --port 8010 </dev/null > producer.log 2>&1 &
+          echo $! > producer.pid
           for _ in $(seq 1 60); do
-            if curl -sf http://127.0.0.1:8010/health/ready >/dev/null; then
+            if curl -sf "$FINANCIAL_REPORTS_BASE_URL/health/ready" >/dev/null; then
               echo "producer ready"; exit 0
             fi
             sleep 2
@@ -76,23 +115,22 @@ jobs:
       - name: Install the consumer
         run: uv sync --extra dev --frozen
 
+      # A skipped smoke test looks identical to a passing one, which is the
+      # failure mode this job exists to avoid, so skips are errors here.
       - name: Smoke test the contract
+        run: uv run pytest tests/test_producer_smoke.py -v --no-header -rs -W error::pytest.PytestUnraisableExceptionWarning
         env:
-          FINANCIAL_REPORTS_BASE_URL: http://127.0.0.1:8010
-          # A skipped smoke test is indistinguishable from a passing one, so
-          # make skips fail: the point is to prove the producer was reachable.
-          PYTEST_ADDOPTS: "-p no:randomly"
-        run: uv run pytest tests/test_producer_smoke.py -v --no-header -rs
-
-      - name: Fail if nothing actually ran
-        run: |
-          count=$(uv run pytest tests/test_producer_smoke.py --collect-only -q 2>/dev/null \
-            | grep -c "test_" || true)
-          if [ "$count" -eq 0 ]; then
-            echo "no smoke tests were collected"; exit 1
-          fi
-          echo "$count smoke tests collected"
+          SMOKE_REQUIRE_DATA: "1"
 
       - name: Producer log on failure
         if: failure()
-        run: cat producer/producer.log || true
+        working-directory: producer
+        run: cat producer.log || true
+
+      - name: Stop the producer
+        if: always()
+        working-directory: producer
+        run: |
+          [ -f producer.pid ] && kill "$(cat producer.pid)" 2>/dev/null || true
+          pkill -f "uvicorn src.api.app" 2>/dev/null || true
+          exit 0
