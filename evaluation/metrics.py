@@ -121,10 +121,18 @@ def gating_accuracy(scenarios: list[Scenario], results: list[ScenarioResult]) ->
 
 
 def citation_coverage(results: list[ScenarioResult], narrative_names: set[str]) -> float:
-    """Fraction of narrative answers carrying at least one usable citation.
+    """Fraction of narrative answers carrying at least one locatable citation.
 
     A citation counts only if it can actually be followed or located: it needs
     a source URL or a page, not just a database id.
+
+    This measures well-formedness, not correctness -- it cannot tell whether a
+    page number points at the text it claims to. That gap is not theoretical:
+    the producer attributed every chunk in a section to the section's first
+    page, so a filing's citations were uniformly wrong while this metric read
+    100%. Judging a page is right needs the source document, which the fixed
+    scenarios deliberately do not carry; it belongs to the producer, which now
+    tests page attribution directly.
     """
     narrative = [r for r in results if r.scenario in narrative_names]
     if not narrative:
