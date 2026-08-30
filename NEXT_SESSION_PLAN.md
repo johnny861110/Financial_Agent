@@ -18,13 +18,13 @@ here — merged PRs carry that.
 | tests | 138 | 114 |
 | CI | gates + cross-repo smoke, green | gates on 3.10/3.11/3.12, green |
 
-**Unpushed local commits exist in both repos.** The §3.1 corpus fix landed as
-two commits on `FinancialReports/main` and this handoff as one on
-`Financial_Agent/main`, all with the gates in §4 green locally, none pushed and
-no PR opened — that was left for you to decide. So neither repo is `0/0` right
-now; both are ahead of `origin/main`. PR numbers are used rather than commit
-SHAs because any SHA written here is stale the moment the file is committed.
-Confirm the real state at session start:
+**Unpushed local commits exist in both repos.** The corpus-legibility fix (the
+item that used to be §3.1) landed as two commits on `FinancialReports/main`,
+and this handoff as two on `Financial_Agent/main`, all with the gates in §4
+green locally, none pushed and no PR opened — that was left for you to decide.
+So neither repo is `0/0` right now; both are ahead of `origin/main`. PR numbers
+are used rather than commit SHAs because any SHA written here is stale the
+moment the file is committed. Confirm the real state at session start:
 
 ```bash
 git rev-parse HEAD origin/main && git status --short
@@ -67,7 +67,7 @@ not-applicable as zero — `ManagementService` is the exception because it score
 caller-supplied assumptions, not filing data. Tool eligibility is decided
 before execution; narrative questions retrieve cited filing text.
 
-**The chunk-ranking defect that used to be §3.1 is fixed**, and the whole
+**The chunk-ranking defect that used to lead §3 is fixed**, and the whole
 corpus has been re-ingested through it. Measured over all 19,177 chunks:
 
 | | before | after |
@@ -78,7 +78,7 @@ corpus has been re-ingested through it. Measured over all 19,177 chunks:
 | chunks that are one-character-token soup | 3,046 (15.9%) | 2,257 (11.8%) |
 | `contains_table` / `contains_numbers` | 1,030 / 1,866 | 12,078 / 14,960 |
 
-Two things that reading the old §3.1 would get wrong, both found by measuring:
+Two things the old write-up of it would get wrong, both found by measuring:
 
 - **"25% of the corpus is debris" conflates two different things.** The
   letter-ratio test counts any number-dense chunk, and most of those are
@@ -90,7 +90,7 @@ Two things that reading the old §3.1 would get wrong, both found by measuring:
   the PDF genuinely letter-spaces to justify them across a column
   (`總 帳 面 金 額` for `總帳面金額`). The characters are correct and in order.
   They now score 0.26–0.37 and no longer win anything. Collapsing that spacing
-  is a text-normalisation improvement, not a bug fix — see §3.2.
+  looks like an easy follow-up and is not — see §3.4.
 
 ---
 
@@ -108,21 +108,7 @@ the answer against the report and the retrieved passages. **This is the measure
 that would catch the agent asserting something no evidence supports** — the
 single most valuable thing still missing.
 
-### 3.2 Letter-spaced CJK table headers
-
-11.8% of chunks still read `總 帳 面 金 額` where the filing means
-`總帳面金額`: the PDF spaces the characters out to justify a column header, and
-extraction reproduces that faithfully. Nothing is lost, but the tokens do not
-match a query's, so these headers are effectively invisible to both embedding
-and keyword search, and they drag `_legibility` down on chunks that are really
-fine.
-
-Collapsing runs of single CJK characters separated by single spaces, in
-`pdf_text_parser`, would recover them. The trap is that a genuine one-character
-column (`項 目`, or a real single-character cell) must not be glued to its
-neighbour — decide the rule against the corpus, not from a sample of one page.
-
-### 3.3 Section labels are unreliable
+### 3.2 Section labels are unreliable
 
 Producer section detection puts ~65% of a filing's chunks into one section
 type, so an auditor's report can be labelled `income_statement`. Section
@@ -130,12 +116,12 @@ filtering is therefore **off by default** in `app/agents/retrieval.py`
 (`use_sections=True` opts in). Fixing `split_sections` would make the filter
 usable and improve `sections=` for all consumers.
 
-### 3.4 Phase F production controls
+### 3.3 Phase F production controls
 
 None of these exist: authentication, rate limits, request IDs, durable jobs,
 shared cache. The service should not be called production-ready without them.
 
-### 3.5 Deferred with reasons — do not "finish" these blindly
+### 3.4 Deferred with reasons — do not "finish" these blindly
 
 - **Supported company sectors** in `ToolRequirements`.
   `FilingIdentityRecord.industry` exists in the model but nothing populates or
@@ -145,6 +131,26 @@ shared cache. The service should not be called production-ready without them.
   typed state. That is consistent with the guardrail against silently
   absorbing producer contract errors, so it was left alone — but callers must
   know it.
+- **Un-spacing letter-spaced CJK table headers.** 11.8% of chunks read
+  `總 帳 面 金 額` for `總帳面金額`, because the PDF spaces characters out to
+  justify a column header. Tempting to fix by joining CJK characters whose gap
+  is under some cut. **That was measured and no such cut exists.** The rule
+  assumes intra-word spacing is tighter than the gap between two adjacent
+  column headers; across 1,639 justified header lines in 15 filings, **38.7%
+  invert it**. On `202401_2882_AI1.pdf` p241, `信用損失` is letter-spaced at
+  **7.92pt** while the boundary to the next column is only **6.48pt**, and
+  `用減損金融資產` in the same row is set at **0.24pt** — any cut that joins the
+  first welds it to the second. An equity-statement header on p9 of
+  `202401_2317_AI1.pdf` spaces at 27.0pt across boundaries of 9.0pt.
+
+  The column geometry that would resolve it is not available either: these
+  pages carry no ruling lines, `find_tables()` returns nothing, and the text
+  strategy degenerates to a single 58-row block spanning the page. A correct
+  fix must infer column boundaries from the x-positions of the numeric rows
+  beneath the header — per-table layout inference, not a text tweak. Weigh that
+  against the benefit: row labels and figures are already legible, these
+  headers are short and repetitive, and the scoring change already stopped them
+  polluting the ranking, which was the actual harm.
 
 ---
 
