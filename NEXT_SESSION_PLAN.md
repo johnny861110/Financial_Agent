@@ -14,17 +14,18 @@ here — merged PRs carry that.
 | --- | --- | --- |
 | repo | `johnny861110/Financial_Agent` | `johnny861110/FinancialReports` |
 | local | `/mnt/c/Users/johnn/GITHUB_REPO/Financial_Agent` | `/mnt/c/Users/johnn/GITHUB_REPO/FinancialReports` |
-| latest merged PR | #15 | #7 |
-| tests | 138 | 114 |
+| latest merged PR | #16 | #8 |
+| open PR | — | **#9, CI green, unmerged** |
+| tests | 138 | 122 |
 | CI | gates + cross-repo smoke, green | gates on 3.10/3.11/3.12, green |
 
-**Unpushed local commits exist in both repos.** The corpus-legibility fix (the
-item that used to be §3.1) landed as two commits on `FinancialReports/main`,
-and this handoff as two on `Financial_Agent/main`, all with the gates in §4
-green locally, none pushed and no PR opened — that was left for you to decide.
-So neither repo is `0/0` right now; both are ahead of `origin/main`. PR numbers
-are used rather than commit SHAs because any SHA written here is stale the
-moment the file is committed. Confirm the real state at session start:
+**FinancialReports PR #9 is open and awaiting merge**: schedule detection plus
+the chunk page-attribution fix (see §3.2 and §5). Its CI is green on all three
+Pythons. Everything else in both repos is pushed.
+
+PR numbers are used rather than commit SHAs because any SHA written here is
+stale the moment the file is committed. Confirm the real state at session
+start:
 
 ```bash
 git rev-parse HEAD origin/main && git status --short
@@ -108,13 +109,31 @@ the answer against the report and the retrieved passages. **This is the measure
 that would catch the agent asserting something no evidence supports** — the
 single most valuable thing still missing.
 
-### 3.2 Section labels are unreliable
+### 3.2 Section labels are still unreliable — partly improved
 
-Producer section detection puts ~65% of a filing's chunks into one section
-type, so an auditor's report can be labelled `income_statement`. Section
-filtering is therefore **off by default** in `app/agents/retrieval.py`
-(`use_sections=True` opts in). Fixing `split_sections` would make the filter
-usable and improve `sections=` for all consumers.
+`split_sections` gives every page to the last detected heading, and it
+recognises about ten headings. The largest section therefore swallows most of a
+filing, so an auditor's report can be labelled `income_statement`. Section
+filtering is **off by default** in `app/agents/retrieval.py`
+(`use_sections=True` opts in) for this reason.
+
+FinancialReports PR #9 fixed one trigger of this: 附表 schedules are now their
+own section, which moved `accounting_policy` from 2,826 chunks averaging 18.4
+pages (max 92) down to 832 averaging 8.0. **It did not fix the general
+problem** — the largest section's share of a filing went from 0.651 only to
+0.570, and `risk` still holds 26.9% of all chunks across spans reaching 80
+pages, because `risk` opens on the single term `風險管理` and then runs until
+the next recognised heading.
+
+The next trigger to attack is the numbered note headings Taiwan filings
+actually use (`十二、金融工具`, `關係人交易`, `分部資訊`). Measure before
+implementing, as PR #9 did: a page-head scan found only 54 of 418 `risk` page
+heads carrying a numbered heading, so the naive rule will not be enough on its
+own and the measurement should say what is.
+
+**Do not turn `use_sections=True` on** until the largest-share number is
+genuinely low. It was measured at 0.570 and that is still one section holding
+most of a filing.
 
 ### 3.3 Phase F production controls
 
@@ -225,6 +244,22 @@ the API then answers 409 for it. Always go through the pipeline:
 uv run fr run <stock> <year> <Qn> --stages extract,validate,insights --force
 ```
 
+**`fr run` takes `<stock> <year> <Qn>`, not a filing key.** A re-ingest loop
+that passed `2308_2024Q1` as one argument failed every filing while the shell
+reported nothing unusual; an earlier loop iterated a store method that does not
+exist and printed `0 ok, 0 failed` with exit code 0. Any batch script over the
+corpus should assert its input count up front and assert `ok == total` at the
+end, so "nothing happened" cannot pass for success. Filing keys come from
+`select filing_key from filings`; note that not every code is four digits
+(`TSLA_2026Q1` is in the corpus), so do not validate them as numeric.
+
+**A metric can be perfect and still measure nothing.** `citation_coverage`
+counts a citation as usable when it carries a page or a URL. It read 100% for
+the entire time the producer was stamping every chunk in a section with that
+section's first page, so citations across the corpus pointed at the wrong page
+of spans up to ninety pages. Well-formedness is not correctness; when a measure
+is exact, check what it would fail on.
+
 **A skipped test looks exactly like a passing one.** The cross-repo smoke job
 seeds a filing and sets `SMOKE_REQUIRE_DATA=1` so "no data" fails instead of
 skipping; the conftest raises instead of skipping when `CI` is set. Preserve
@@ -276,23 +311,27 @@ inspected.
 ```text
 Read NEXT_SESSION_PLAN.md first, then verify both repositories with
 `git rev-parse HEAD origin/main` and `git status` before trusting anything in
-it. Both should be on main and clean, but both carry unpushed commits -- see
-section 1. Decide whether to push those before starting new work.
+it. FinancialReports PR #9 was open and green when this was written -- check
+whether it merged, and merge it if not.
 
 Do not rebuild what section 2 lists as already working -- in particular the
 provider protocol, CanonicalFinancialContext, the eight migrated services, the
-tool-eligibility gate, the retrieval path, or the chunk-legibility work just
-landed in FinancialReports/src/parsers/.
+tool-eligibility gate, the retrieval path, or the parser work in
+FinancialReports/src/parsers/ (chunk legibility, schedule detection, chunk
+page attribution).
 
 Start with section 3.1: unsupported-claim rate is the one evaluation still
 missing, and it is the measure that would catch the agent asserting something
 no evidence supports. It needs a harness running with LLM_ENABLED=true that
 checks each claim in an answer against the report and the retrieved passages.
+Note that this spends the user's API credits -- say so before running it.
 
 Read section 5 before writing tests or CI: data/ is gitignored, skipped tests
-look like passing ones, a handoff's stated cause is only a hypothesis, and
-deterministic tests cannot tell you a design decision was wrong. Verify against
-the real corpus, not just the suite.
+look like passing ones, a handoff's stated cause is only a hypothesis, an exact
+metric can still be measuring the wrong thing, and deterministic tests cannot
+tell you a design decision was wrong. Verify against the real corpus, not just
+the suite. If you re-ingest, remember that re-extraction cascades embeddings
+away and `fr embed` must follow.
 
 Use small commits with exact-path staging, run the gates in section 4, keep CI
 green, update this handoff, and return both repos to synchronized main.
