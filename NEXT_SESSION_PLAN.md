@@ -1,6 +1,6 @@
 # Next Session Handoff
 
-**Last updated:** 2026-08-29
+**Last updated:** 2026-08-30
 
 Read this first. It states what exists, what to do next, and the traps that
 have already cost time. It is deliberately not a history of how things got
@@ -15,12 +15,16 @@ here — merged PRs carry that.
 | repo | `johnny861110/Financial_Agent` | `johnny861110/FinancialReports` |
 | local | `/mnt/c/Users/johnn/GITHUB_REPO/Financial_Agent` | `/mnt/c/Users/johnn/GITHUB_REPO/FinancialReports` |
 | latest merged PR | #15 | #7 |
-| tests | 138 | 99 |
+| tests | 138 | 114 |
 | CI | gates + cross-repo smoke, green | gates on 3.10/3.11/3.12, green |
 
-Both repos are clean, synchronized `0/0`, and carry only `main`. PR numbers are
-used rather than commit SHAs because any SHA written here is stale the moment
-the file is committed. Confirm the real state at session start:
+**Unpushed local commits exist in both repos.** The corpus-legibility fix (the
+item that used to be §3.1) landed as two commits on `FinancialReports/main`,
+and this handoff as two on `Financial_Agent/main`, all with the gates in §4
+green locally, none pushed and no PR opened — that was left for you to decide.
+So neither repo is `0/0` right now; both are ahead of `origin/main`. PR numbers
+are used rather than commit SHAs because any SHA written here is stale the
+moment the file is committed. Confirm the real state at session start:
 
 ```bash
 git rev-parse HEAD origin/main && git status --short
@@ -54,6 +58,8 @@ tool orchestration and the final answer. **The boundary is HTTP only.**
 | Intent-gated bounded retrieval with citations | `app/agents/retrieval.py` |
 | Display logic for citations and field states | `ui/presentation.py` |
 | Fixed evaluation set and metrics | `evaluation/` |
+| Upright-flag repair in PDF text extraction | `FinancialReports/src/parsers/pdf_text_parser.py` |
+| Legibility-scaled chunk importance | `FinancialReports/src/parsers/pdf_section_parser.py` |
 
 Phases A–E and the evaluation half of F are done. Eight of the nine services
 read filings through `load_context()` and never treat missing, null or
@@ -61,28 +67,36 @@ not-applicable as zero — `ManagementService` is the exception because it score
 caller-supplied assumptions, not filing data. Tool eligibility is decided
 before execution; narrative questions retrieve cited filing text.
 
+**The chunk-ranking defect that used to lead §3 is fixed**, and the whole
+corpus has been re-ingested through it. Measured over all 19,177 chunks:
+
+| | before | after |
+| --- | --- | --- |
+| mean importance, debris (<30% letters) | 0.703 | 0.343 |
+| mean importance, real prose | 0.652 | 0.459 |
+| which wins the fallback ranking | **debris, by 0.052** | **prose, by 0.116** |
+| chunks that are one-character-token soup | 3,046 (15.9%) | 2,257 (11.8%) |
+| `contains_table` / `contains_numbers` | 1,030 / 1,866 | 12,078 / 14,960 |
+
+Two things the old write-up of it would get wrong, both found by measuring:
+
+- **"25% of the corpus is debris" conflates two different things.** The
+  letter-ratio test counts any number-dense chunk, and most of those are
+  *correctly extracted* financial statement tables — statements are number-dense.
+  That share barely moved (24.96% → 23.89%) and should not be driven to zero.
+  Only the character soup was an extraction defect, and the ranking was the
+  actual harm. Both are addressed; the letter ratio is a bad health metric.
+- **The residual 11.8% soup is not broken extraction.** It is CJK table headers
+  the PDF genuinely letter-spaces to justify them across a column
+  (`總 帳 面 金 額` for `總帳面金額`). The characters are correct and in order.
+  They now score 0.26–0.37 and no longer win anything. Collapsing that spacing
+  looks like an easy follow-up and is not — see §3.4.
+
 ---
 
 ## 3. Next, in priority order
 
-### 3.1 Garbled corpus chunks — highest value, blocks retrieval quality
-
-**25% of the corpus is table-extraction debris.** 4,780 of 19,152 chunks are
-under 30% letters/CJK — text like
-`4 1 . 年 2 2 2 1 4 1 2 1 0 1 1 , , , , %`. Their mean `importance_score` is
-**0.70 against 0.65 for real prose**, so the fallback ranking actively prefers
-them, and one scored 0.702 on a genuine question.
-
-Two angles, both in FinancialReports:
-
-- table handling in `src/parsers/` — tables become character soup
-- `_score_chunk` in `src/parsers/pdf_section_parser.py` — stop rewarding digit
-  density
-
-A read-time legibility filter would be the same kind of stopgap the content
-dedupe already is; prefer fixing generation, since re-ingest is now safe.
-
-### 3.2 Unsupported-claim rate — the missing evaluation
+### 3.1 Unsupported-claim rate — the missing evaluation
 
 `evaluation/` measures tool gating, citation coverage and contradiction recall,
 all exactly, because all are deterministic. **Unsupported-claim rate is
@@ -94,7 +108,7 @@ the answer against the report and the retrieved passages. **This is the measure
 that would catch the agent asserting something no evidence supports** — the
 single most valuable thing still missing.
 
-### 3.3 Section labels are unreliable
+### 3.2 Section labels are unreliable
 
 Producer section detection puts ~65% of a filing's chunks into one section
 type, so an auditor's report can be labelled `income_statement`. Section
@@ -102,12 +116,12 @@ filtering is therefore **off by default** in `app/agents/retrieval.py`
 (`use_sections=True` opts in). Fixing `split_sections` would make the filter
 usable and improve `sections=` for all consumers.
 
-### 3.4 Phase F production controls
+### 3.3 Phase F production controls
 
 None of these exist: authentication, rate limits, request IDs, durable jobs,
 shared cache. The service should not be called production-ready without them.
 
-### 3.5 Deferred with reasons — do not "finish" these blindly
+### 3.4 Deferred with reasons — do not "finish" these blindly
 
 - **Supported company sectors** in `ToolRequirements`.
   `FilingIdentityRecord.industry` exists in the model but nothing populates or
@@ -117,6 +131,26 @@ shared cache. The service should not be called production-ready without them.
   typed state. That is consistent with the guardrail against silently
   absorbing producer contract errors, so it was left alone — but callers must
   know it.
+- **Un-spacing letter-spaced CJK table headers.** 11.8% of chunks read
+  `總 帳 面 金 額` for `總帳面金額`, because the PDF spaces characters out to
+  justify a column header. Tempting to fix by joining CJK characters whose gap
+  is under some cut. **That was measured and no such cut exists.** The rule
+  assumes intra-word spacing is tighter than the gap between two adjacent
+  column headers; across 1,639 justified header lines in 15 filings, **38.7%
+  invert it**. On `202401_2882_AI1.pdf` p241, `信用損失` is letter-spaced at
+  **7.92pt** while the boundary to the next column is only **6.48pt**, and
+  `用減損金融資產` in the same row is set at **0.24pt** — any cut that joins the
+  first welds it to the second. An equity-statement header on p9 of
+  `202401_2317_AI1.pdf` spaces at 27.0pt across boundaries of 9.0pt.
+
+  The column geometry that would resolve it is not available either: these
+  pages carry no ruling lines, `find_tables()` returns nothing, and the text
+  strategy degenerates to a single 58-row block spanning the page. A correct
+  fix must infer column boundaries from the x-positions of the numeric rows
+  beneath the header — per-table layout inference, not a text tweak. Weigh that
+  against the benefit: row labels and figures are already legible, these
+  headers are short and repetitive, and the scoring change already stopped them
+  polluting the ranking, which was the actual harm.
 
 ---
 
@@ -131,9 +165,16 @@ export FR_DATABASE_URL="postgresql+psycopg://financial:financial@localhost:5432/
 uv run uvicorn src.api.app:create_app --factory --host 127.0.0.1 --port 8010
 ```
 
-The `financialreports_pgdata` volume holds the corpus: **19,152 chunks, all
+The `financialreports_pgdata` volume holds the corpus: **19,177 chunks, all
 embedded** with `BAAI/bge-base-zh-v1.5`, zero duplicates, 71 filings
 `insight_ready`. It is local only — not committed, not deployed.
+
+All 71 filings were re-ingested through
+`fr run <stock> <year> <Qn> --stages extract,validate,insights --force`
+followed by `fr embed`, so the corpus reflects the §2 parser fixes. Re-running
+that is ~40 s per filing plus one embedding pass. Re-extraction deletes a
+document's chunks and cascades to `chunk_embeddings`, so **always finish with
+`fr embed`** or the filing silently drops to importance-order retrieval.
 
 ### Gates
 
@@ -194,6 +235,17 @@ kept the runner blocked and failed the job five minutes *after* the tests
 passed. Start it under `setsid` with stdin closed and reap it in an `always()`
 step.
 
+**A handoff's stated cause is a hypothesis, not a finding.** This file used to
+blame the garbled-chunk ranking on `_score_chunk` rewarding digit density.
+Measured against the corpus before changing anything, that bonus fired on 1.0%
+of debris chunks and 3.2% of prose — Taiwan filings group digits with commas,
+so `2,394,804,250` has no run of six digits and the `\d{6,}` test almost never
+matched. Removing it alone would have *widened* the gap it was blamed for. The
+real driver was that debris concentrates in the sections with the highest base
+score. Re-measure the mechanism before you fix it; the same comma blindness had
+silently reduced `contains_numbers` and the table heuristic to firing on 5% of
+a corpus that is a quarter numeric table text.
+
 **Deterministic tests prove the code does what you wrote, not that you wrote
 the right thing.** Two Phase D design decisions — section filtering and the
 narrative allowlist — passed every test and were both wrong; only querying the
@@ -224,23 +276,23 @@ inspected.
 ```text
 Read NEXT_SESSION_PLAN.md first, then verify both repositories with
 `git rev-parse HEAD origin/main` and `git status` before trusting anything in
-it. Both should be on main, clean, and 0/0 with origin.
+it. Both should be on main and clean, but both carry unpushed commits -- see
+section 1. Decide whether to push those before starting new work.
 
 Do not rebuild what section 2 lists as already working -- in particular the
 provider protocol, CanonicalFinancialContext, the eight migrated services, the
-tool-eligibility gate, or the retrieval path.
+tool-eligibility gate, the retrieval path, or the chunk-legibility work just
+landed in FinancialReports/src/parsers/.
 
-Start with section 3.1: 25% of the producer's chunk corpus is table-extraction
-debris that scores higher on importance than real prose, so it wins the
-fallback ranking. Fix it in FinancialReports at generation time (PDF table
-handling, and _score_chunk rewarding digit density) rather than filtering at
-read time. Re-ingest is safe now -- extraction is idempotent -- but must go
-through `fr run --stages extract,validate,insights --force`, never
-`fr extract` alone.
+Start with section 3.1: unsupported-claim rate is the one evaluation still
+missing, and it is the measure that would catch the agent asserting something
+no evidence supports. It needs a harness running with LLM_ENABLED=true that
+checks each claim in an answer against the report and the retrieved passages.
 
 Read section 5 before writing tests or CI: data/ is gitignored, skipped tests
-look like passing ones, and deterministic tests cannot tell you a design
-decision was wrong. Verify against the real corpus, not just the suite.
+look like passing ones, a handoff's stated cause is only a hypothesis, and
+deterministic tests cannot tell you a design decision was wrong. Verify against
+the real corpus, not just the suite.
 
 Use small commits with exact-path staging, run the gates in section 4, keep CI
 green, update this handoff, and return both repos to synchronized main.
