@@ -1,7 +1,9 @@
 """Core utilities and helpers."""
 
-from typing import TYPE_CHECKING, Dict, List, Optional
+from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
+import re
 import statistics
+import unicodedata
 
 if TYPE_CHECKING:
     from app.data.context import CanonicalFinancialContext
@@ -204,3 +206,124 @@ def interpret_score(score: float) -> str:
         return "Poor"
     else:
         return "Critical"
+
+
+# ---------------------------------------------------------------------------
+# Reporting period parsing
+#
+# The FinancialReports v1 API rejects anything but YYYYQn, so a period has to be
+# normalized before it reaches a provider. Free-text queries arrive in several
+# shapes -- "2026Q1", "2026 第一季", "26Q1" -- and an LLM asked for a period will
+# happily return a bare year.
+# ---------------------------------------------------------------------------
+
+_QUARTER_DIGITS = {
+    "一": "1",
+    "壹": "1",
+    "二": "2",
+    "貳": "2",
+    "兩": "2",
+    "三": "3",
+    "參": "3",
+    "叁": "3",
+    "四": "4",
+    "肆": "4",
+}
+
+# Ordered by specificity: the Chinese quarter form has to win over the bare
+# "YYYYQn" form for inputs that contain both a year and a quarter word.
+_PERIOD_PATTERNS = (
+    re.compile(r"(?P<year>\d{4}|\d{2})\s*年?\s*第\s*(?P<quarter>[一二三四壹貳兩參叁肆1-4])\s*季(?:度)?"),
+    re.compile(r"(?P<year>\d{4}|\d{2})\s*[-/年.]?\s*[Qq]\s*0?(?P<quarter>[1-4])(?!\d)"),
+    re.compile(r"[Qq]\s*0?(?P<quarter>[1-4])\s*[-/, ]\s*(?P<year>\d{4})(?!\d)"),
+)
+
+
+def _build_period(year: str, quarter: str) -> str:
+    """Assemble a YYYYQn label from a matched year and quarter fragment."""
+    quarter = _QUARTER_DIGITS.get(quarter, quarter)
+    if len(year) == 2:
+        year = f"20{year}"
+    return f"{year}Q{quarter}"
+
+
+def normalize_period(raw: Optional[str]) -> Optional[str]:
+    """
+    Normalize a single reporting-period token to the canonical ``YYYYQn`` form.
+
+    Accepts the shapes users and LLMs actually produce -- ``2026Q1``, ``2026q1``,
+    ``2026-Q1``, ``26Q1``, ``2026Q01``, ``2026年第一季``, ``Q1 2026``.
+
+    A bare year is deliberately *not* resolved: guessing a quarter is worse than
+    reporting that the period is unusable.
+
+    Args:
+        raw: Period token to normalize
+
+    Returns:
+        Canonical ``YYYYQn`` string, or None if the token is not a period
+    """
+    if not raw:
+        return None
+
+    # NFKC folds full-width digits and letters ("２０２６Ｑ１") to ASCII.
+    candidate = unicodedata.normalize("NFKC", str(raw)).strip()
+    if not candidate:
+        return None
+
+    for pattern in _PERIOD_PATTERNS:
+        match = pattern.fullmatch(candidate)
+        if match:
+            return _build_period(match.group("year"), match.group("quarter"))
+    return None
+
+
+def extract_period(text: Optional[str]) -> Optional[str]:
+    """
+    Find the first reporting period inside free text.
+
+    Unlike :func:`normalize_period` this searches rather than matching the whole
+    string, so it can pull "2026Q1" out of "幫我彙總 3661 2026 第一季財報表現".
+
+    Args:
+        text: Free-form query text
+
+    Returns:
+        Canonical ``YYYYQn`` string, or None if the text names no period
+    """
+    if not text:
+        return None
+
+    candidate = unicodedata.normalize("NFKC", str(text))
+    for pattern in _PERIOD_PATTERNS:
+        match = pattern.search(candidate)
+        if match:
+            return _build_period(match.group("year"), match.group("quarter"))
+    return None
+
+
+def split_period(text: Optional[str]) -> Tuple[Optional[str], str]:
+    """
+    Split free text into the period it names and everything else.
+
+    Callers that also scan the text for stock codes need the remainder rather
+    than offsets: a year such as "2026" is indistinguishable from a four-digit
+    ticker, so the period fragment has to be removed before the ticker scan.
+
+    Args:
+        text: Free-form query text
+
+    Returns:
+        ``(period, remainder)`` where period is canonical ``YYYYQn`` or None, and
+        remainder is the NFKC-normalized text with the period fragment removed
+    """
+    if not text:
+        return None, ""
+
+    candidate = unicodedata.normalize("NFKC", str(text))
+    for pattern in _PERIOD_PATTERNS:
+        match = pattern.search(candidate)
+        if match:
+            period = _build_period(match.group("year"), match.group("quarter"))
+            return period, candidate[: match.start()] + " " + candidate[match.end() :]
+    return None, candidate

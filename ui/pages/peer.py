@@ -4,7 +4,8 @@ import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
 from app.models import PeerAnalysis
-from ui.api_client import api_request
+from ui.api_client import api_request, describe_api_error
+from ui.data_source import period_input
 
 
 def show():
@@ -26,7 +27,7 @@ def show():
         )
 
     with col2:
-        period = st.text_input("Period", value="2025Q1", help="Reporting period")
+        period = period_input(stock_codes.split(",")[0].strip(), key="peer_period")
 
     # Metric selection
     available_metrics = [
@@ -45,7 +46,7 @@ def show():
         default=["Gross Margin", "Operating Margin", "ROE", "Debt Ratio"],
     )
 
-    if st.button("🔍 Compare", type="primary"):
+    if st.button("🔍 Compare", type="primary", disabled=period is None):
         if not selected_metrics:
             st.warning("⚠️ Please select at least one metric to compare.")
             return
@@ -64,15 +65,10 @@ def show():
                         },
                     )
                 )
-            except Exception:
-                result = None
-
-            if result:
-                display_peer_results(result)
+            except Exception as exc:  # noqa: BLE001 - surfaced to the user
+                st.error(f"❌ {describe_api_error(exc)}")
             else:
-                st.error(
-                    "❌ Insufficient data for comparison. Please check the stock codes and period."
-                )
+                display_peer_results(result)
 
 
 def display_peer_results(result):

@@ -10,6 +10,12 @@ os.environ["OPENAI_API_KEY"] = ""
 os.environ["LANGFUSE_ENABLED"] = "false"
 os.environ["LANGFUSE_REQUIRED"] = "false"
 
+# The data provider is a deployment choice. A developer running against the live
+# FinancialReports API must not turn these into integration tests, so the local
+# JSON fixtures are pinned here regardless of what .env selects.
+os.environ["DATA_PROVIDER"] = "json"
+os.environ["ALLOW_JSON_FALLBACK"] = "true"
+
 
 @pytest.fixture
 def test_data_dir(tmp_path):

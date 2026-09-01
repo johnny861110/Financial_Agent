@@ -1,0 +1,38 @@
+# Development overrides: live source instead of the code baked into the image.
+#
+# Not applied by default, so `docker compose up` always exercises the image as
+# it will actually ship. Opt in per command:
+#     docker compose -f docker-compose.yaml -f docker-compose.dev.yaml up
+#
+# Or make it automatic for your checkout -- docker-compose.override.yaml is
+# merged by compose on its own and is gitignored, so it stays local to you:
+#     cp docker-compose.dev.yaml docker-compose.override.yaml
+#
+# The source mounts mean an edit to app/ or ui/ takes effect without a rebuild.
+# A change to pyproject.toml or uv.lock still needs `docker compose build`,
+# because dependencies live in the image's virtualenv.
+services:
+  api:
+    volumes:
+      - ./app:/app/app:ro
+      - ./ui:/app/ui:ro
+      - ./data:/app/data:ro
+      - ./logs:/app/logs
+    environment:
+      # This project lives on /mnt/c, a drvfs mount that does not deliver inotify
+      # events, so uvicorn's default watcher never fires. Polling is the only
+      # thing that sees an edit made from Windows or from WSL.
+      WATCHFILES_FORCE_POLLING: "true"
+    command: >
+      uvicorn app.main:app --host 0.0.0.0 --port 8000
+      --reload --reload-dir /app/app --reload-dir /app/ui
+
+  ui:
+    volumes:
+      - ./app:/app/app:ro
+      - ./ui:/app/ui:ro
+      - ./streamlit_app.py:/app/streamlit_app.py:ro
+      - ./data:/app/data:ro
+    command: >
+      streamlit run streamlit_app.py --server.port=8501 --server.address=0.0.0.0
+      --server.fileWatcherType=poll --server.runOnSave=true

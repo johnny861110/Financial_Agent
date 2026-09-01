@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.core import get_settings
 from app.api import financials_router, agent_router, data_router
 from app.data.factory import get_data_provider
+from app.data.providers import FinancialDataContractError, FinancialDataProviderUnavailable
 
 # Initialize settings
 settings = get_settings()
@@ -34,6 +35,25 @@ app.add_middleware(
 app.include_router(financials_router)
 app.include_router(agent_router)
 app.include_router(data_router)
+
+
+# A provider fault is an upstream problem, not a bug in the requested route, so
+# it is translated once here rather than in every handler that touches data.
+# Without this a FinancialReports outage surfaces as a bare 500.
+@app.exception_handler(FinancialDataProviderUnavailable)
+async def _provider_unavailable_handler(_request, exc: FinancialDataProviderUnavailable):
+    return JSONResponse(
+        status_code=503,
+        content={"error": "data_source_unavailable", "message": str(exc)},
+    )
+
+
+@app.exception_handler(FinancialDataContractError)
+async def _provider_contract_handler(_request, exc: FinancialDataContractError):
+    return JSONResponse(
+        status_code=502,
+        content={"error": "data_source_contract", "message": str(exc)},
+    )
 
 
 @app.get("/")

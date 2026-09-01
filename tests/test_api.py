@@ -128,3 +128,86 @@ def test_roic_wacc_missing_fields_returns_structured_error(monkeypatch):
     assert data["error"] == "insufficient_data"
     assert "missing_fields" in data
     assert "operating_income" in data["missing_fields"]
+
+
+# ---------------------------------------------------------------------------
+# Period contract and provider-fault translation
+#
+# A malformed period used to reach the provider and come back as "data not
+# found", and a provider outage used to surface as a bare 500. Both hid the
+# real problem from the caller.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "bad_period",
+    ["2026", "第一季", "not-a-period", "2026Q9"],
+)
+def test_snapshot_rejects_a_malformed_period_as_422(bad_period):
+    response = client.get(f"/api/financials/3661/{bad_period}")
+
+    assert response.status_code == 422
+    detail = response.json()["detail"]
+    assert detail["error"] == "invalid_period"
+    assert "YYYYQn" in detail["message"]
+
+
+def test_snapshot_accepts_an_unconventional_but_parseable_period():
+    """A period the caller can write, normalized rather than rejected."""
+    canonical = client.get("/api/financials/2330/2023Q3")
+    chinese = client.get("/api/financials/2330/2023年第三季")
+
+    assert canonical.status_code == chinese.status_code
+    assert canonical.json() == chinese.json()
+
+
+def test_missing_filing_is_still_a_404_not_a_422():
+    """A well-formed period for data that does not exist is a different failure."""
+    response = client.get("/api/financials/2330/2019Q1")
+
+    assert response.status_code == 404
+
+
+def test_data_discovery_endpoints_list_stocks_and_periods():
+    stocks = client.get("/api/data/stocks")
+    periods = client.get("/api/data/2330/periods")
+
+    assert stocks.status_code == 200
+    assert "2330" in stocks.json()["stocks"]
+    assert periods.status_code == 200
+    body = periods.json()
+    assert body["stock_code"] == "2330"
+    assert body["periods"] == sorted(body["periods"], reverse=True)
+
+
+def test_provider_outage_is_reported_as_503_not_500(monkeypatch):
+    """A FinancialReports outage is an upstream fault, not a broken route."""
+    from app.data.providers import FinancialDataProviderUnavailable
+    from app.services import factory as service_factory
+
+    def explode(*_args, **_kwargs):
+        raise FinancialDataProviderUnavailable("FinancialReports is unavailable: timed out")
+
+    registry = service_factory.get_service_registry()
+    monkeypatch.setattr(registry.snapshot, "get_summary", explode)
+
+    response = client.get("/api/financials/2330/2023Q3")
+
+    assert response.status_code == 503
+    assert response.json()["error"] == "data_source_unavailable"
+
+
+def test_provider_contract_breach_is_reported_as_502(monkeypatch):
+    from app.data.providers import FinancialDataContractError
+    from app.services import factory as service_factory
+
+    def explode(*_args, **_kwargs):
+        raise FinancialDataContractError("Invalid FinancialReports snapshot response")
+
+    registry = service_factory.get_service_registry()
+    monkeypatch.setattr(registry.snapshot, "get_summary", explode)
+
+    response = client.get("/api/financials/2330/2023Q3")
+
+    assert response.status_code == 502
+    assert response.json()["error"] == "data_source_contract"

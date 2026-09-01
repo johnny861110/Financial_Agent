@@ -4,7 +4,7 @@ import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
 from app.models import TrendAnalysis
-from ui.api_client import api_request
+from ui.api_client import api_request, describe_api_error
 
 
 def show():
@@ -22,15 +22,10 @@ def show():
                 result = TrendAnalysis.model_validate(
                     api_request("GET", f"/api/trend/{stock_code}")
                 )
-            except Exception:
-                result = None
-
-            if result:
-                display_trend_results(result)
+            except Exception as exc:  # noqa: BLE001 - surfaced to the user
+                st.error(f"❌ {describe_api_error(exc)}")
             else:
-                st.error(
-                    "❌ Insufficient data for trend analysis. Please ensure multiple periods are available."
-                )
+                display_trend_results(result)
 
 
 def display_trend_results(result):

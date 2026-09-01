@@ -10,16 +10,16 @@ calls it through `API_BASE_URL=http://api:8000`.
 - Docker Compose v2 (`docker compose`)
 - A `.env` file
 - Local `data` and `logs` directories
-- The external `langfuse_default` Docker network used by the current Compose
-  configuration
+
+Nothing else has to exist first. Langfuse and FinancialReports run in their own
+Compose projects and are reached over their published host ports, so this stack
+starts whether or not either of them is up.
 
 Create prerequisites:
 
 ```bash
 cp .env.example .env
 mkdir -p logs
-docker network inspect langfuse_default >/dev/null 2>&1 || \
-  docker network create langfuse_default
 ```
 
 `OPENAI_API_KEY` and Langfuse credentials are optional. Leave
@@ -106,10 +106,36 @@ is intentional.
 
 ## Troubleshooting
 
-### Compose reports `langfuse_default` missing
+### Downloads stall part-way through a build
 
-Create the external network as shown in Requirements. This network is needed
-by the current Compose topology even when tracing is disabled.
+If a build dies with `Connection reset by peer` or a wheel that stops arriving
+mid-transfer, compare the MTUs:
+
+```bash
+ip link show eth0      # the host uplink
+ip link show docker0   # the bridge containers build on
+```
+
+A bridge MTU larger than the uplink's silently truncates large transfers. The
+Compose file builds with `network: host` for this reason; a container that hits
+the same problem at runtime needs the daemon's MTU lowered to match.
+
+### Editing code has no effect
+
+`docker compose up` runs the code baked into the image, so an edit needs a
+rebuild. For live source and reload, add the development overrides:
+
+```bash
+docker compose -f docker-compose.yaml -f docker-compose.dev.yaml up
+```
+
+To make that automatic for your own checkout (the override file is gitignored):
+
+```bash
+cp docker-compose.dev.yaml docker-compose.override.yaml
+```
+
+Dependency changes (`pyproject.toml`, `uv.lock`) always need `docker compose build`.
 
 ### API is healthy but not ready
 

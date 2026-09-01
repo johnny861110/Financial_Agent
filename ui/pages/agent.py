@@ -7,6 +7,8 @@ import httpx
 
 from app.core.config import get_settings
 from app.models.agent_models import AgentQuery, AgentResponse
+from ui.api_client import describe_api_error
+from ui.data_source import period_input, render_data_source
 from ui.presentation import (
     blocked_tools,
     group_field_states,
@@ -128,12 +130,12 @@ def show():
             "Company Name", value="世芯-KY", help="Company name for context"
         )
 
-        # Data source settings
-        st.markdown("**Data Source**")
-        data_source = st.selectbox("Source", ["CSV Upload", "API Endpoint", "Sample Data"])
+        # The period used to be hardcoded to 2025Q1 here, so every question was
+        # answered about that quarter no matter what the user asked.
+        period = period_input(company_ticker, key="agent_period")
 
-        if data_source == "CSV Upload":
-            uploaded_file = st.file_uploader("Upload Financial Data CSV", type=["csv"])
+        st.markdown("---")
+        render_data_source()
 
         st.markdown("---")
 
@@ -188,6 +190,12 @@ def show():
         - Verify network connectivity
         """
         )
+        # Without this the page stays on the error screen for the rest of the
+        # session: agent_ready is only computed when the key is absent.
+        if st.button("🔄 Retry connection"):
+            st.session_state.pop("agent_ready", None)
+            st.session_state.pop("agent_error", None)
+            st.rerun()
         return
 
     # Display chat history
@@ -231,18 +239,14 @@ def show():
                     agent_query = AgentQuery(
                         query=query_input,
                         stock_code=company_ticker,
-                        period="2025Q1",
+                        period=period,
                         context={"company_name": company_name},
                     )
 
                     response = query_agent_api(agent_query)
 
                     # Display response
-                    st.markdown(
-                        response.answer
-                        if hasattr(response, "answer")
-                        else response.get("answer", "No response generated.")
-                    )
+                    st.markdown(response.answer)
 
                     if response.verdict:
                         verdict_col, confidence_col = st.columns(2)
@@ -281,30 +285,20 @@ def show():
                     render_citations(response)
 
                     # Display analysis steps if available
-                    analysis_steps = (
-                        response.analysis_steps
-                        if hasattr(response, "analysis_steps")
-                        else response.get("steps", [])
-                    )
+                    analysis_steps = response.analysis_steps
                     if analysis_steps:
                         with st.expander("🔬 Analysis Steps"):
                             for idx, step in enumerate(analysis_steps, 1):
                                 st.markdown(f"**Step {idx}**: {step}")
 
                     # Display data used
-                    data_used = (
-                        response.data if hasattr(response, "data") else response.get("data", {})
-                    )
+                    data_used = response.data
                     if data_used:
                         with st.expander("📊 Data Used"):
                             st.json(data_used)
 
                     # Display sources
-                    sources = (
-                        response.sources
-                        if hasattr(response, "sources")
-                        else response.get("sources", [])
-                    )
+                    sources = response.sources
                     if sources:
                         with st.expander("🛠️ Data Sources"):
                             for source in sources:
@@ -314,26 +308,18 @@ def show():
                     st.session_state.messages.append(
                         {
                             "role": "assistant",
-                            "content": (
-                                response.answer
-                                if hasattr(response, "answer")
-                                else response.get("answer", "No response")
-                            ),
+                            "content": response.answer,
                             "metadata": {
                                 "steps": analysis_steps,
                                 "sources": sources,
-                                "confidence": (
-                                    response.confidence
-                                    if hasattr(response, "confidence")
-                                    else response.get("confidence", "N/A")
-                                ),
+                                "confidence": response.confidence,
                             },
                             "timestamp": datetime.now().isoformat(),
                         }
                     )
 
-                except Exception as e:
-                    error_msg = f"❌ Error: {str(e)}"
+                except Exception as e:  # noqa: BLE001 - surfaced to the user below
+                    error_msg = f"❌ {describe_api_error(e)}"
                     st.error(error_msg)
 
                     st.session_state.messages.append(
@@ -354,14 +340,14 @@ def show():
             st.rerun()
 
     with col2:
-        if st.button("💾 Export Chat", use_container_width=True):
-            chat_export = json.dumps(st.session_state.messages, indent=2)
-            st.download_button(
-                label="Download JSON",
-                data=chat_export,
-                file_name=f"chat_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
-                mime="application/json",
-            )
+        st.download_button(
+            label="💾 Export Chat",
+            data=json.dumps(st.session_state.messages, indent=2, ensure_ascii=False),
+            file_name=f"chat_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
+            mime="application/json",
+            use_container_width=True,
+            disabled=not st.session_state.messages,
+        )
 
     with col3:
         st.caption(f"💬 {len(st.session_state.messages)} messages in conversation")
@@ -418,13 +404,3 @@ def show():
         except Exception as e:
             st.error(f"Settings error: {e}")
 
-
-def format_agent_response(response):
-    """Format agent response for display."""
-
-    if isinstance(response, dict):
-        return response.get("answer", str(response))
-    elif isinstance(response, str):
-        return response
-    else:
-        return str(response)

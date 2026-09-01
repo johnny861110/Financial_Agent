@@ -16,7 +16,7 @@ x-common-env: &common-env
   FINANCIAL_REPORTS_TIMEOUT: ${FINANCIAL_REPORTS_TIMEOUT:-10}
   FINANCIAL_REPORTS_MAX_RETRIES: ${FINANCIAL_REPORTS_MAX_RETRIES:-2}
   DATA_CACHE_TTL_SECONDS: ${DATA_CACHE_TTL_SECONDS:-300}
-  ALLOW_JSON_FALLBACK: ${ALLOW_JSON_FALLBACK:-true}
+  ALLOW_JSON_FALLBACK: ${ALLOW_JSON_FALLBACK:-false}
   MIN_DATA_QUALITY_SCORE: ${MIN_DATA_QUALITY_SCORE:-0.6}
   AUTO_REFRESH_MISSING_DATA: ${AUTO_REFRESH_MISSING_DATA:-false}
   LOG_LEVEL: ${LOG_LEVEL:-INFO}
@@ -25,6 +25,11 @@ x-build: &build
   build:
     context: .
     dockerfile: Dockerfile
+    # The default bridge sets MTU 1500 while this host's uplink (eth0) is 1280,
+    # so large downloads stall mid-transfer during builds -- observed as wheels
+    # cut off after ~1MB and "Connection reset by peer". Building on the host
+    # network uses the correct MTU.
+    network: host
   image: financial-agent:latest
 
 services:
@@ -51,9 +56,14 @@ services:
       timeout: 10s
       retries: 3
       start_period: 40s
+    extra_hosts:
+      # Both of these run in their own compose projects and publish on the host.
+      # Joining their networks would make them required: an external network that
+      # does not exist stops `docker compose up` before any container starts.
+      - "financial-reports:host-gateway"
+      - "langfuse-web:host-gateway"
     networks:
       - financial-agent-network
-      - langfuse_default
 
   ui:
     <<: *build
@@ -78,12 +88,15 @@ services:
       timeout: 10s
       retries: 3
       start_period: 40s
+    extra_hosts:
+      # Both of these run in their own compose projects and publish on the host.
+      # Joining their networks would make them required: an external network that
+      # does not exist stops `docker compose up` before any container starts.
+      - "financial-reports:host-gateway"
+      - "langfuse-web:host-gateway"
     networks:
       - financial-agent-network
-      - langfuse_default
 
 networks:
   financial-agent-network:
     driver: bridge
-  langfuse_default:
-    external: true

@@ -5,7 +5,8 @@ import streamlit as st
 from ui.presentation import group_field_states
 import pandas as pd
 import plotly.graph_objects as go
-from ui.api_client import api_request
+from ui.api_client import api_request, describe_api_error
+from ui.data_source import period_input
 
 
 def render_data_context(context: dict) -> None:
@@ -63,23 +64,19 @@ def show():
         stock_code = st.text_input("Stock Code", value="3661", help="Enter the stock ticker code")
 
     with col2:
-        period = st.text_input(
-            "Period",
-            value="2025Q1",
-            help="Enter the reporting period (e.g., 2025Q1)",
-        )
+        period = period_input(stock_code, key="snapshot_period")
 
-    if st.button("🔍 Analyze", type="primary"):
+    if st.button("🔍 Analyze", type="primary", disabled=period is None):
         with st.spinner("Loading financial data..."):
+            # Reporting the real failure matters: an unreachable API, a rejected
+            # period and a genuine miss are three different problems that this
+            # page used to render as the same "data not found".
             try:
                 result = api_request("GET", f"/api/financials/{stock_code}/{period}")
-            except Exception:
-                result = None
-
-            if result:
-                display_snapshot_results(result)
+            except Exception as exc:  # noqa: BLE001 - surfaced to the user
+                st.error(f"❌ {describe_api_error(exc)}")
             else:
-                st.error("❌ Data not found. Please check the stock code and period.")
+                display_snapshot_results(result)
 
 
 def display_snapshot_results(result):

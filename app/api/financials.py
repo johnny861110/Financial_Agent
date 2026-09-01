@@ -4,7 +4,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.concurrency import run_in_threadpool
 from typing import List, NoReturn, Optional
 from pydantic import BaseModel, Field
-from app.core import InsufficientDataError
+from app.core import InsufficientDataError, normalize_period
 from app.services.factory import get_service_registry
 
 
@@ -63,6 +63,26 @@ def _not_found(message: str) -> NoReturn:
     raise HTTPException(status_code=404, detail={"error": "not_found", "message": message})
 
 
+def _valid_period(period: str) -> str:
+    """
+    Return the canonical YYYYQn form of a requested period, or reject it.
+
+    The period travels on to the provider as a URL segment and FinancialReports
+    answers a malformed one with 422 invalid_period. Rejecting it here keeps that
+    contract visible instead of letting it surface as "data not found".
+    """
+    canonical = normalize_period(period)
+    if canonical is None:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "error": "invalid_period",
+                "message": f"period must use YYYYQn, for example 2026Q1 (received {period!r})",
+            },
+        )
+    return canonical
+
+
 def _insufficient_data(exc: InsufficientDataError) -> NoReturn:
     raise HTTPException(
         status_code=422,
@@ -77,6 +97,7 @@ def _insufficient_data(exc: InsufficientDataError) -> NoReturn:
 @router.get("/financials/{stock_code}/{period}")
 async def get_financial_snapshot(stock_code: str, period: str):
     """Get financial snapshot for a specific stock and period."""
+    period = _valid_period(period)
     result = await run_in_threadpool(
         get_service_registry().snapshot.get_summary, stock_code, period
     )
@@ -130,10 +151,11 @@ async def compare_peers(request: PeerCompareRequest):
         period: Period identifier
         metrics: Optional list of metrics to compare
     """
+    period = _valid_period(request.period)
     result = await run_in_threadpool(
         get_service_registry().peer.compare_peers,
         request.stock_codes,
-        request.period,
+        period,
         request.metrics,
     )
     if not result:
@@ -190,6 +212,7 @@ async def calculate_management_score(request: ManagementScoreRequest):
 @router.get("/scores/earnings_quality/{stock_code}/{period}")
 async def calculate_earnings_quality_score(stock_code: str, period: str):
     """Calculate earnings quality score."""
+    period = _valid_period(period)
     try:
         result = await run_in_threadpool(
             get_service_registry().earnings_quality.calculate_score, stock_code, period
@@ -220,6 +243,7 @@ async def analyze_roic_wacc(
     request: ROICWACCRequest = ROICWACCRequest(),
 ):
     """Analyze ROIC vs WACC for value creation."""
+    period = _valid_period(period)
     try:
         result = await run_in_threadpool(
             get_service_registry().roic_wacc.analyze,
@@ -262,6 +286,7 @@ async def calculate_factor_exposures(
         period: Period identifier
         peer_stocks: Optional comma-separated peer stock codes
     """
+    period = _valid_period(period)
     try:
         result = await run_in_threadpool(
             get_service_registry().factor.calculate_exposures,
@@ -292,6 +317,7 @@ async def analyze_capital_allocation(
     request: CapitalAllocationRequest,
 ):
     """Analyze capital allocation strategy."""
+    period = _valid_period(period)
     result = await run_in_threadpool(
         get_service_registry().capital_allocation.analyze,
         stock_code,
@@ -323,6 +349,7 @@ async def analyze_capital_allocation(
 @router.get("/ews/{stock_code}/{period}")
 async def detect_early_warnings(stock_code: str, period: str):
     """Run Early Warning System to detect financial red flags."""
+    period = _valid_period(period)
     try:
         result = await run_in_threadpool(
             get_service_registry().ews.detect_warnings, stock_code, period

@@ -9,7 +9,7 @@ from langchain_core.messages import BaseMessage, HumanMessage
 from langchain_openai import ChatOpenAI
 from langchain_core.output_parsers import PydanticOutputParser
 from langchain_core.prompts import PromptTemplate
-from app.core import DataLoader, get_settings
+from app.core import DataLoader, get_settings, normalize_period, split_period
 from app.agents.contracts import ResearchFinding, ResearchReport, ToolResult
 from app.agents.retrieval import citation, retrieve
 from app.agents.tools import TOOL_REGISTRY, evaluate_eligibility, required_fields_for_planning
@@ -207,14 +207,17 @@ class FinancialAgent:
             intent = "snapshot"
 
         entities: dict[str, Any] = {}
-        stock_matches = re.findall(r"\b\d{3,6}\b", query)
+
+        # The period is taken out first so its digits cannot be read as tickers:
+        # "3661 2026 第一季" otherwise yields peer_stocks ['3661', '2026'].
+        period, remainder = split_period(query)
+        if period:
+            entities["period"] = period
+        stock_matches = re.findall(r"\b\d{3,6}\b", remainder)
         if stock_matches:
             entities["stock_code"] = stock_matches[0]
         if len(stock_matches) > 1:
             entities["peer_stocks"] = stock_matches
-        period_match = re.search(r"\b20\d{2}Q[1-4]\b", query, re.IGNORECASE)
-        if period_match:
-            entities["period"] = period_match.group(0).upper()
         beta_match = re.search(r"\bbeta(?:\s+of|\s*=|\s+is)?\s+([0-9]+(?:\.[0-9]+)?)", query_lower)
         if beta_match:
             entities["beta"] = float(beta_match.group(1))
@@ -597,15 +600,20 @@ class FinancialAgent:
         fallback_intent, fallback_entities = self._keyword_classification(query)
         if not self.settings.openai_api_key:
             state["intent"] = fallback_intent
-            state["entities"] = fallback_entities
-            if "stock_code" in fallback_entities:
-                state["stock_code"] = str(fallback_entities["stock_code"])
-            if "period" in fallback_entities:
-                state["period"] = str(fallback_entities["period"])
+            self._apply_entities(state, fallback_entities)
             return state
 
         prompt = PromptTemplate(
-            template="Analyze the following financial query and classify the intent and extract relevant entities (stock_code, period, etc.).\n{format_instructions}\nQuery: {query}\n",
+            template=(
+                "Analyze the following financial query and classify the intent and "
+                "extract relevant entities (stock_code, period, etc.).\n"
+                "The period entity MUST use the canonical YYYYQn form, for example "
+                "2026Q1. Convert spoken or Chinese quarters yourself: "
+                "'2026 first quarter' and '2026 第一季' are both 2026Q1. "
+                "If the query names a year but no quarter, leave period empty "
+                "rather than guessing a quarter.\n"
+                "{format_instructions}\nQuery: {query}\n"
+            ),
             input_variables=["query"],
             partial_variables={"format_instructions": self.parser.get_format_instructions()},
         )
@@ -615,23 +623,44 @@ class FinancialAgent:
         try:
             result = chain.invoke({"query": query}, config=self._langfuse_config())
             state["intent"] = result.intent_type
-            state["entities"] = result.entities
-
-            # Update stock_code and period if found in entities
-            if "stock_code" in result.entities and result.entities["stock_code"]:
-                state["stock_code"] = str(result.entities["stock_code"])
-            if "period" in result.entities and result.entities["period"]:
-                state["period"] = str(result.entities["period"])
-
+            self._apply_entities(state, dict(result.entities), fallback_entities)
         except Exception:
             state["intent"] = fallback_intent
-            state["entities"] = fallback_entities
-            if "stock_code" in fallback_entities:
-                state["stock_code"] = str(fallback_entities["stock_code"])
-            if "period" in fallback_entities:
-                state["period"] = str(fallback_entities["period"])
+            self._apply_entities(state, fallback_entities)
 
         return state
+
+    def _apply_entities(
+        self,
+        state: AgentState,
+        entities: dict[str, Any],
+        fallback_entities: dict[str, Any] | None = None,
+    ) -> None:
+        """
+        Copy classified entities onto the state, normalizing the period.
+
+        The period reaches a provider as a URL segment and FinancialReports
+        rejects anything but YYYYQn, so an unparseable period is dropped rather
+        than forwarded: the caller-supplied period already on the state is a
+        better answer than a request that is certain to fail.
+        """
+        raw_period = entities.get("period")
+        period = normalize_period(str(raw_period)) if raw_period else None
+        if period is None and fallback_entities:
+            period = normalize_period(str(fallback_entities.get("period") or "")) or None
+        if period:
+            entities["period"] = period
+            state["period"] = period
+        elif raw_period:
+            # Keep the rejected value visible; the UI renders entities verbatim.
+            entities["period_raw"] = str(raw_period)
+            entities.pop("period", None)
+
+        stock_code = entities.get("stock_code")
+        if stock_code:
+            state["stock_code"] = str(stock_code)
+
+        state["entities"] = entities
 
     def _route_by_intent(self, state: AgentState) -> str:
         """Route to appropriate node based on intent."""

@@ -27,6 +27,24 @@ async def get_data_capabilities():
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
 
+# Discovery routes. The provider has always been able to enumerate stocks and
+# periods; without them over HTTP the UI can only offer free-text inputs, which
+# is how an unusable period reaches the provider in the first place.
+# Declared before the parameterized routes so the literal segments win.
+@router.get("/stocks")
+async def list_stocks():
+    """List every stock the configured provider can serve."""
+    stocks = await run_in_threadpool(get_data_provider().list_all_stocks)
+    return {"stocks": stocks}
+
+
+@router.get("/{stock_code}/periods")
+async def list_periods(stock_code: str):
+    """List the periods available for one stock, newest first."""
+    periods = await run_in_threadpool(get_data_provider().list_available_periods, stock_code)
+    return {"stock_code": stock_code, "periods": sorted(periods, reverse=True)}
+
+
 @router.get("/{stock_code}/{period}/record", response_model=SnapshotRecord)
 async def get_data_record(stock_code: str, period: str):
     try:

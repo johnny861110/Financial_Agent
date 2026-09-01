@@ -63,3 +63,6 @@ Dockerfile-bk
 # OS
 .DS_Store
 Thumbs.db
+
+# Local compose overrides (see docker-compose.dev.yaml)
+docker-compose.override.yaml
