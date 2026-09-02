@@ -149,9 +149,11 @@ services still use the compatibility snapshot and are migrated incrementally.
 
 FinancialReports implements the versioned endpoints documented in
 `MODIFICATION_PLAN.md`, including schema/capability discovery and batch query.
-The merged producer and consumer were validated together locally. Until a named
-target deployment passes the same checks, `DATA_PROVIDER=json` remains the
-repository default.
+The merged producer and consumer were validated together locally, and
+`DATA_PROVIDER=financial_reports` is now the shipped default: the local files
+cover four stocks to 2025Q1 while the producer covers sixteen to 2026Q2, so the
+JSON provider answers "not found" for filings that exist. `DATA_PROVIDER=json`
+remains available for working without the producer running.
 
 ## Agent Layer Architecture
 

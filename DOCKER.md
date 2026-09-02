@@ -79,7 +79,11 @@ for compatibility, but normal UI requests go through FastAPI.
 
 ## Data Provider Configuration
 
-Default local mode:
+The shipped default is the FinancialReports API. Local files stay available for
+working without the producer running, but they cover far fewer stocks and
+periods, so they answer "not found" for filings that do exist.
+
+Local files:
 
 ```env
 DATA_PROVIDER=json
@@ -94,7 +98,8 @@ FINANCIAL_REPORTS_BASE_URL=http://financial-reports:8010
 FINANCIAL_REPORTS_TIMEOUT=10
 FINANCIAL_REPORTS_MAX_RETRIES=2
 DATA_CACHE_TTL_SECONDS=300
-ALLOW_JSON_FALLBACK=true
+# false so an outage is reported, not answered from stale local files
+ALLOW_JSON_FALLBACK=false
 MIN_DATA_QUALITY_SCORE=0.6
 AUTO_REFRESH_MISSING_DATA=false
 ```

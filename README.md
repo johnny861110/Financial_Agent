@@ -202,12 +202,12 @@ LANGFUSE_REQUIRED=false
 # Data Configuration
 DATA_DIR=./data
 FINANCIAL_DATA_PATH=./data/financial_reports
-DATA_PROVIDER=json
+DATA_PROVIDER=financial_reports
 FINANCIAL_REPORTS_BASE_URL=http://financial-reports:8010
 FINANCIAL_REPORTS_TIMEOUT=10
 FINANCIAL_REPORTS_MAX_RETRIES=2
 DATA_CACHE_TTL_SECONDS=300
-ALLOW_JSON_FALLBACK=true
+ALLOW_JSON_FALLBACK=false
 MIN_DATA_QUALITY_SCORE=0.6
 AUTO_REFRESH_MISSING_DATA=false
 
@@ -259,9 +259,10 @@ Create the logs directory (bind-mounted into the API container):
 
 ```bash
 mkdir -p logs
-docker network inspect langfuse_default >/dev/null 2>&1 || \
-  docker network create langfuse_default
 ```
+
+No Docker network has to be created first. Langfuse and FinancialReports run in
+their own Compose projects and are reached over their published host ports.
 
 ### Build and Start
 
@@ -321,6 +322,47 @@ See [DOCKER.md](DOCKER.md) for remote-provider networking, operations, and
 production gaps.
 
 ## API Endpoints
+
+### Discovery
+
+Ask the configured provider what it can serve, rather than guessing:
+
+```bash
+curl http://localhost:8000/api/data/capabilities
+curl http://localhost:8000/api/data/stocks
+curl http://localhost:8000/api/data/3661/periods
+```
+
+`capabilities` also identifies which provider is answering: `api_version: "v1"`
+is the FinancialReports API, `schema_version: "legacy-json"` is local files.
+
+### Period format
+
+Every endpoint taking a period requires the canonical `YYYYQn` form. Anything
+else is rejected with `422 invalid_period` rather than being reported as
+missing data:
+
+```bash
+curl -i http://localhost:8000/api/financials/3661/2026
+# 422 {"detail":{"error":"invalid_period","message":"period must use YYYYQn, ..."}}
+```
+
+Unconventional but unambiguous spellings are normalized, so `2026Q1`, `26Q1`
+and `2026年第一季` all resolve to `2026Q1`.
+
+### Failure semantics
+
+A data failure names its own cause instead of being reported as missing data:
+
+| Status | Meaning |
+|---|---|
+| 404 | The filing does not exist for that stock and period |
+| 422 | The period is not `YYYYQn`, or required fields are absent |
+| 502 | The upstream provider answered with something unusable |
+| 503 | The upstream provider is unreachable |
+
+With `ALLOW_JSON_FALLBACK=false` a producer outage surfaces as 503 rather than
+being answered quietly from local files that may be older than the request.
 
 ### Snapshot
 
@@ -445,12 +487,12 @@ The original `/api/agent/query` endpoint remains available and accepts
 
 ### FinancialReports Data Provider
 
-JSON remains the default source. To consume the FinancialReports v1 API:
+The v1 API is the shipped default. The settings it uses:
 
 ```bash
 DATA_PROVIDER=financial_reports
 FINANCIAL_REPORTS_BASE_URL=http://financial-reports:8010
-ALLOW_JSON_FALLBACK=true
+ALLOW_JSON_FALLBACK=false
 DATA_CACHE_TTL_SECONDS=300
 MIN_DATA_QUALITY_SCORE=0.6
 ```
@@ -479,8 +521,11 @@ The UI defaults are set to the current sample company:
 
 - Company: `世芯-KY`
 - Stock code: `3661`
-- Period: `2025Q1`
 - Peer example: `3661,2330,2454`
+
+The period is no longer fixed in the page. Each page lists the periods the
+configured provider can actually serve, newest first, from
+`GET /api/data/{stock_code}/periods`.
 
 ## Testing and Quality Checks
 

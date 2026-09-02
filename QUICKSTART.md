@@ -67,7 +67,7 @@ curl http://127.0.0.1:8000/api/financials/3661/2025Q1
 
 ## Choose a Data Provider
 
-Local JSON is the default:
+Local JSON, for working without the producer running:
 
 ```env
 DATA_PROVIDER=json
@@ -79,7 +79,9 @@ Use FinancialReports through HTTP:
 ```env
 DATA_PROVIDER=financial_reports
 FINANCIAL_REPORTS_BASE_URL=http://127.0.0.1:8010
-ALLOW_JSON_FALLBACK=true
+# Leave this false while verifying the connection: true lets an outage answer
+# silently from local files that may be older than what was asked for.
+ALLOW_JSON_FALLBACK=false
 DATA_CACHE_TTL_SECONDS=300
 MIN_DATA_QUALITY_SCORE=0.6
 ```
