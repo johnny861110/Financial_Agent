@@ -497,9 +497,16 @@ DATA_CACHE_TTL_SECONDS=300
 MIN_DATA_QUALITY_SCORE=0.6
 ```
 
-Remote `404` and `422` responses are not replaced with local data. Transport
-and server failures may use local JSON fallback; a previously cached remote
-record is returned as stale when available.
+Remote `404` and `422` responses are never replaced with local data: a filing
+that does not exist, and a request the producer rejects, are answers rather
+than faults.
+
+Transport and server failures are governed by `ALLOW_JSON_FALLBACK`, which now
+ships as `false` — an unreachable producer surfaces as `503` instead of being
+answered from local files that may be older than the request. Setting it to
+`true` restores the fall back, at the cost of making an outage look like a
+successful answer. Either way, a previously cached remote record is returned
+as stale when one is available.
 
 `DataLoader.load_context()` exposes the complete service-facing filing context.
 Snapshot and trend analysis already use it, so missing and `not_applicable`
