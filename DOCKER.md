@@ -25,6 +25,39 @@ mkdir -p logs
 `OPENAI_API_KEY` and Langfuse credentials are optional. Leave
 `LANGFUSE_ENABLED=false` when tracing is not configured.
 
+## Companion Services
+
+Neither companion is required to start this stack, but with
+`DATA_PROVIDER=financial_reports` the API answers 503 until FinancialReports is
+reachable. Both are addressed by hostname through `extra_hosts` entries mapped
+to the host gateway, so each one only has to publish its port on the host.
+
+| Service | Hostname used here | Host port |
+|---|---|---|
+| FinancialReports v1 API | `financial-reports` | 8010 |
+| Langfuse web | `langfuse-web` | 3000 |
+
+FinancialReports defaults to publishing its database on 5432, which collides
+with Langfuse's Postgres. Start it on a free port instead:
+
+```bash
+cd ../FinancialReports
+API_PORT=8010 POSTGRES_PORT=5433 docker compose up -d --build
+```
+
+Put those two values in that project's own `.env` so the ports survive a
+restart, otherwise the next `docker compose up` there reverts to 5432 and the
+database container fails to bind.
+
+Check what this stack is actually talking to:
+
+```bash
+curl -s localhost:8000/api/data/capabilities
+```
+
+`api_version: "v1"` means the FinancialReports API is answering.
+`schema_version: "legacy-json"` means it is reading local files instead.
+
 ## Start and Verify
 
 ```bash
