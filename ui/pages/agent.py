@@ -22,7 +22,7 @@ def query_agent_api(query: AgentQuery) -> AgentResponse:
     """Submit research through the shared FastAPI application."""
     settings = get_settings()
     response = httpx.post(
-        f"{settings.api_base_url.rstrip('/')}/api/agent/research",
+        f"{settings.api_base_url.rstrip('/')}/api/agent/query",
         json=query.model_dump(mode="json"),
         timeout=120,
     )
@@ -95,6 +95,49 @@ def render_citations(response: AgentResponse) -> None:
             st.json(structured)
 
 
+def render_agent_response(response: AgentResponse) -> None:
+    """Render the complete response payload for new and historical messages."""
+    st.markdown(response.answer)
+    if response.verdict:
+        verdict_col, confidence_col = st.columns(2)
+        verdict_col.metric("Verdict", response.verdict)
+        confidence_col.metric("Confidence", f"{response.confidence_score * 100:.0f}%")
+    render_pipeline_state(response)
+    render_blocked_tools(response)
+    validation_gaps, ordinary_gaps = split_data_gaps(response.data_gaps)
+    if response.risks or response.contradictions or validation_gaps or ordinary_gaps:
+        with st.expander("Research Risks and Data Gaps", expanded=True):
+            for item in validation_gaps:
+                st.error(item)
+            for item in response.risks:
+                st.warning(item)
+            for item in response.contradictions:
+                st.warning(f"Contradiction: {item}")
+            for item in ordinary_gaps:
+                st.info(item)
+    render_citations(response)
+    if response.research_plan:
+        with st.expander("Research Plan"):
+            st.json(response.research_plan)
+    if response.analysis_steps:
+        with st.expander("🔬 Analysis Steps"):
+            for idx, step in enumerate(response.analysis_steps, 1):
+                st.markdown(f"**Step {idx}**: {step}")
+    if response.findings:
+        with st.expander("Findings"):
+            st.json(response.findings)
+    if response.data:
+        with st.expander("📊 Data Used"):
+            st.json(response.data)
+    if response.sources:
+        with st.expander("🛠️ Data Sources"):
+            for source in response.sources:
+                st.markdown(f"- `{source}`")
+    if response.watch_items:
+        with st.expander("Watch Items"):
+            st.json(response.watch_items)
+
+
 def show():
     """Display AI agent chat interface."""
 
@@ -129,6 +172,7 @@ def show():
         company_name = st.text_input(
             "Company Name", value="世芯-KY", help="Company name for context"
         )
+        mode = st.selectbox("Agent mode", ["auto", "quick", "research"], index=0)
 
         # The period used to be hardcoded to 2025Q1 here, so every question was
         # answered about that quarter no matter what the user asked.
@@ -206,12 +250,10 @@ def show():
     with chat_container:
         for message in st.session_state.messages:
             with st.chat_message(message["role"]):
-                st.markdown(message["content"])
-
-                # Display metadata if available
-                if "metadata" in message and message["metadata"]:
-                    with st.expander("🔍 Analysis Details"):
-                        st.json(message["metadata"])
+                if message["role"] == "assistant" and message.get("response"):
+                    render_agent_response(AgentResponse.model_validate(message["response"]))
+                else:
+                    st.markdown(message["content"])
 
     # Query input
     query_input = st.chat_input("Ask a financial question...")
@@ -240,80 +282,20 @@ def show():
                         query=query_input,
                         stock_code=company_ticker,
                         period=period,
+                        mode=mode,
                         context={"company_name": company_name},
                     )
 
                     response = query_agent_api(agent_query)
 
-                    # Display response
-                    st.markdown(response.answer)
-
-                    if response.verdict:
-                        verdict_col, confidence_col = st.columns(2)
-                        verdict_col.metric("Verdict", response.verdict)
-                        confidence_col.metric(
-                            "Confidence", f"{response.confidence_score * 100:.0f}%"
-                        )
-
-                    render_pipeline_state(response)
-                    render_blocked_tools(response)
-
-                    validation_gaps, ordinary_gaps = split_data_gaps(response.data_gaps)
-                    if (
-                        response.risks
-                        or response.contradictions
-                        or validation_gaps
-                        or ordinary_gaps
-                    ):
-                        with st.expander("Research Risks and Data Gaps", expanded=True):
-                            # Validation failures mean the producer believes a
-                            # number is wrong, which is a different problem from
-                            # a field simply being absent.
-                            if validation_gaps:
-                                st.markdown("**Validation failures**")
-                                for item in validation_gaps:
-                                    st.error(item)
-                            for risk in response.risks:
-                                st.warning(risk)
-                            for contradiction in response.contradictions:
-                                st.warning(f"Contradiction: {contradiction}")
-                            if ordinary_gaps:
-                                st.markdown("**Data gaps**")
-                                for gap in ordinary_gaps:
-                                    st.info(gap)
-
-                    render_citations(response)
-
-                    # Display analysis steps if available
-                    analysis_steps = response.analysis_steps
-                    if analysis_steps:
-                        with st.expander("🔬 Analysis Steps"):
-                            for idx, step in enumerate(analysis_steps, 1):
-                                st.markdown(f"**Step {idx}**: {step}")
-
-                    # Display data used
-                    data_used = response.data
-                    if data_used:
-                        with st.expander("📊 Data Used"):
-                            st.json(data_used)
-
-                    # Display sources
-                    sources = response.sources
-                    if sources:
-                        with st.expander("🛠️ Data Sources"):
-                            for source in sources:
-                                st.markdown(f"- `{source}`")
+                    render_agent_response(response)
 
                     # Add assistant message to chat
                     st.session_state.messages.append(
                         {
                             "role": "assistant",
                             "content": response.answer,
-                            "metadata": {
-                                "steps": analysis_steps,
-                                "sources": sources,
-                                "confidence": response.confidence,
-                            },
+                            "response": response.model_dump(mode="json"),
                             "timestamp": datetime.now().isoformat(),
                         }
                     )
@@ -373,9 +355,9 @@ def show():
         st.markdown(
             """
         **Best Practices:**
-        - Review analysis steps for transparency
-        - Verify data sources in metadata
-        - Export important conversations
+        - Review analysis steps and evidence for transparency
+        - Choose quick, auto, or research for the desired depth
+        - Export conversations; local history is a display log, not LLM memory
         - Provide context with ticker/company name
         """
         )
@@ -403,4 +385,3 @@ def show():
             )
         except Exception as e:
             st.error(f"Settings error: {e}")
-
