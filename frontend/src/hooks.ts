@@ -1,0 +1,5 @@
+import { useEffect, useRef, useState } from 'react';
+import type { Json } from './types';
+import { request } from './api';
+export function useApi<T>(path: string | null) { const [state, setState] = useState<{ data: T | null; loading: boolean; error: string | null }>({ data: null, loading: false, error: null }); const requestId = useRef(0); useEffect(() => { if (!path) return; const controller = new AbortController(); const id = ++requestId.current; setState({ data: null, loading: true, error: null }); request<T>(path, {}, controller.signal).then(data => { if (id === requestId.current) setState({ data, loading: false, error: null }); }).catch(error => { if (error?.name !== 'AbortError' && id === requestId.current) setState({ data: null, loading: false, error: error instanceof Error ? error.message : '讀取失敗' }); }); return () => controller.abort(); }, [path]); return state; }
+export function jsonBody(value: Record<string, string | number | boolean>): Json { return Object.fromEntries(Object.entries(value).filter(([, v]) => v !== '')); }
