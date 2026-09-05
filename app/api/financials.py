@@ -6,6 +6,17 @@ from typing import List, NoReturn, Optional
 from pydantic import BaseModel, Field
 from app.core import InsufficientDataError, normalize_period
 from app.services.factory import get_service_registry
+from app.models.api_models import (
+    CapitalAllocationResponse,
+    EarlyWarningResponse,
+    FactorResponse,
+    FinancialSnapshotResponse,
+    EarningsQualityResponse,
+    ManagementResponse,
+    PeerResponse,
+    ROICWACCResponse,
+    TrendResponse,
+)
 
 
 class PeerCompareRequest(BaseModel):
@@ -94,7 +105,7 @@ def _insufficient_data(exc: InsufficientDataError) -> NoReturn:
     )
 
 
-@router.get("/financials/{stock_code}/{period}")
+@router.get("/financials/{stock_code}/{period}", response_model=FinancialSnapshotResponse)
 async def get_financial_snapshot(stock_code: str, period: str):
     """Get financial snapshot for a specific stock and period."""
     period = _valid_period(period)
@@ -103,10 +114,16 @@ async def get_financial_snapshot(stock_code: str, period: str):
     )
     if not result:
         _not_found("Financial data not found")
+    result["units"] = {
+        "monetary": "TWD_thousands",
+        "percentages": "percent",
+        "ratios": "ratio",
+        "per_share": "TWD_per_share",
+    }
     return result
 
 
-@router.get("/trend/{stock_code}")
+@router.get("/trend/{stock_code}", response_model=TrendResponse)
 async def get_trend_analysis(stock_code: str, periods: Optional[str] = None):
     """
     Get trend analysis for a stock.
@@ -138,10 +155,16 @@ async def get_trend_analysis(stock_code: str, periods: Optional[str] = None):
             for m in result.metrics
         ],
         "summary": result.summary,
+        "units": {
+            "monetary": "TWD_thousands",
+            "percentages": "percent",
+            "ratios": "ratio",
+            "per_share": "TWD_per_share",
+        },
     }
 
 
-@router.post("/peers/compare")
+@router.post("/peers/compare", response_model=PeerResponse)
 async def compare_peers(request: PeerCompareRequest):
     """
     Compare peer companies on key metrics.
@@ -175,10 +198,16 @@ async def compare_peers(request: PeerCompareRequest):
             for c in result.comparisons
         ],
         "summary": result.summary,
+        "units": {
+            "monetary": "TWD_thousands",
+            "percentages": "percent",
+            "ratios": "ratio",
+            "per_share": "TWD_per_share",
+        },
     }
 
 
-@router.post("/scores/management")
+@router.post("/scores/management", response_model=ManagementResponse)
 async def calculate_management_score(request: ManagementScoreRequest):
     """Calculate management quality score."""
     result = await run_in_threadpool(
@@ -206,10 +235,13 @@ async def calculate_management_score(request: ManagementScoreRequest):
         },
         "commentary": result.commentary,
         "details": result.details,
+        "units": {"scores": "points_0_100", "ratios": "ratio"},
     }
 
 
-@router.get("/scores/earnings_quality/{stock_code}/{period}")
+@router.get(
+    "/scores/earnings_quality/{stock_code}/{period}", response_model=EarningsQualityResponse
+)
 async def calculate_earnings_quality_score(stock_code: str, period: str):
     """Calculate earnings quality score."""
     period = _valid_period(period)
@@ -233,10 +265,11 @@ async def calculate_earnings_quality_score(stock_code: str, period: str):
         "red_flags": result.red_flags,
         "commentary": result.commentary,
         "details": result.details,
+        "units": {"scores": "points_0_100"},
     }
 
 
-@router.post("/roic_wacc/{stock_code}/{period}")
+@router.post("/roic_wacc/{stock_code}/{period}", response_model=ROICWACCResponse)
 async def analyze_roic_wacc(
     stock_code: str,
     period: str,
@@ -269,10 +302,11 @@ async def analyze_roic_wacc(
         "is_value_creating": result.is_value_creating,
         "commentary": result.commentary,
         "assumptions": result.assumptions,
+        "units": {"monetary": "TWD_thousands", "percentages": "percent", "ratios": "ratio"},
     }
 
 
-@router.post("/factors/{stock_code}/{period}")
+@router.post("/factors/{stock_code}/{period}", response_model=FactorResponse)
 async def calculate_factor_exposures(
     stock_code: str,
     period: str,
@@ -307,10 +341,11 @@ async def calculate_factor_exposures(
         "volatility": result.volatility,
         "commentary": result.commentary,
         "details": result.details,
+        "units": {"factors": "z_score"},
     }
 
 
-@router.post("/capital_allocation/{stock_code}/{period}")
+@router.post("/capital_allocation/{stock_code}/{period}", response_model=CapitalAllocationResponse)
 async def analyze_capital_allocation(
     stock_code: str,
     period: str,
@@ -343,10 +378,11 @@ async def analyze_capital_allocation(
         "total_investment": result.total_investment,
         "allocation_mix": result.allocation_mix,
         "commentary": result.commentary,
+        "units": {"monetary": "TWD_thousands", "percentages": "percent"},
     }
 
 
-@router.get("/ews/{stock_code}/{period}")
+@router.get("/ews/{stock_code}/{period}", response_model=EarlyWarningResponse)
 async def detect_early_warnings(stock_code: str, period: str):
     """Run Early Warning System to detect financial red flags."""
     period = _valid_period(period)
@@ -374,4 +410,5 @@ async def detect_early_warnings(stock_code: str, period: str):
         ],
         "recommendation": result.recommendation,
         "commentary": result.commentary,
+        "units": {"scores": "points_0_100", "percentages": "percent", "ratios": "ratio"},
     }

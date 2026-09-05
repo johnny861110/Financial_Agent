@@ -3,6 +3,8 @@
 from typing import Optional, List, Dict, Any, Literal
 from pydantic import BaseModel, Field
 
+from app.models.api_models import UnitsMetadata
+
 
 class AgentQuery(BaseModel):
     """Agent natural language query request."""
@@ -34,6 +36,7 @@ class AgentResponse(BaseModel):
     contradictions: List[str] = Field(default_factory=list)
     data_gaps: List[str] = Field(default_factory=list)
     watch_items: List[str] = Field(default_factory=list)
+    units: UnitsMetadata = Field(default_factory=UnitsMetadata)
 
 
 class IntentClassification(BaseModel):
