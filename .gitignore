@@ -7,6 +7,13 @@ __pycache__/
 build/
 develop-eggs/
 dist/
+node_modules/
+frontend/coverage/
+frontend/test-results/
+frontend/playwright-report/
+*.tsbuildinfo
+frontend/vite.config.js
+frontend/vite.config.d.ts
 downloads/
 eggs/
 .eggs/
@@ -33,6 +40,9 @@ ENV/
 *.swo
 *~
 
+# Claude Code local (per-machine) settings
+.claude/settings.local.json
+
 # Environment
 .env
 .env.local
@@ -48,6 +58,9 @@ htmlcov/
 /data/
 *.json
 !tests/fixtures/*.json
+!frontend/package.json
+!frontend/package-lock.json
+!frontend/tsconfig*.json
 *.csv
 *.pdf
 

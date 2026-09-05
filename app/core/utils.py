@@ -233,7 +233,9 @@ _QUARTER_DIGITS = {
 # Ordered by specificity: the Chinese quarter form has to win over the bare
 # "YYYYQn" form for inputs that contain both a year and a quarter word.
 _PERIOD_PATTERNS = (
-    re.compile(r"(?P<year>\d{4}|\d{2})\s*年?\s*第\s*(?P<quarter>[一二三四壹貳兩參叁肆1-4])\s*季(?:度)?"),
+    re.compile(
+        r"(?P<year>\d{4}|\d{2})\s*年?\s*第\s*(?P<quarter>[一二三四壹貳兩參叁肆1-4])\s*季(?:度)?"
+    ),
     re.compile(r"(?P<year>\d{4}|\d{2})\s*[-/年.]?\s*[Qq]\s*0?(?P<quarter>[1-4])(?!\d)"),
     re.compile(r"[Qq]\s*0?(?P<quarter>[1-4])\s*[-/, ]\s*(?P<year>\d{4})(?!\d)"),
 )

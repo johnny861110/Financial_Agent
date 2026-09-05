@@ -11,7 +11,7 @@ x-common-env: &common-env
   LANGFUSE_REQUIRED: ${LANGFUSE_REQUIRED:-false}
   DATA_DIR: /app/data
   FINANCIAL_DATA_PATH: /app/data/financial_reports
-  DATA_PROVIDER: ${DATA_PROVIDER:-json}
+  DATA_PROVIDER: ${DATA_PROVIDER:-financial_reports}
   FINANCIAL_REPORTS_BASE_URL: ${FINANCIAL_REPORTS_BASE_URL:-http://financial-reports:8010}
   FINANCIAL_REPORTS_TIMEOUT: ${FINANCIAL_REPORTS_TIMEOUT:-10}
   FINANCIAL_REPORTS_MAX_RETRIES: ${FINANCIAL_REPORTS_MAX_RETRIES:-2}
@@ -45,7 +45,7 @@ services:
       API_PORT: "8000"
       API_BASE_URL: http://api:8000
       API_RELOAD: "false"
-      API_CORS_ORIGINS: ${API_CORS_ORIGINS:-http://localhost:8501,http://127.0.0.1:8501}
+      API_CORS_ORIGINS: ${API_CORS_ORIGINS:-http://localhost:5173,http://127.0.0.1:5173,http://localhost:8501,http://127.0.0.1:8501}
     volumes:
       - ./data:/app/data:ro
       - ./logs:/app/logs

@@ -854,7 +854,13 @@ Requirements:
         Returns:
             AgentResponse with analysis results
         """
-        default_stock, default_period = self._default_stock_period()
+        # Explicit research targets do not need a scan of every provider stock
+        # and its periods. Besides latency, that scan introduced unrelated
+        # discovery failures into otherwise valid single-filing requests.
+        if query.stock_code and query.period:
+            default_stock, default_period = query.stock_code, query.period
+        else:
+            default_stock, default_period = self._default_stock_period()
 
         # Initialize state with latest local data fallback if not provided
         initial_state = AgentState(

@@ -22,6 +22,8 @@ Detailed documentation:
 
 | Document | Purpose |
 | --- | --- |
+| [WORKBENCH.md](WORKBENCH.md) | React + TypeScript workbench setup, API boundary and local deployment |
+| [REACT_MIGRATION_PLAN.md](REACT_MIGRATION_PLAN.md) | Migration scope, acceptance checklist and production gate |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | System, data-layer, and Agent architecture diagrams and boundaries |
 | [QUICKSTART.md](QUICKSTART.md) | Local setup, first research query, and common failures |
 | [DOCKER.md](DOCKER.md) | Compose deployment and provider networking |

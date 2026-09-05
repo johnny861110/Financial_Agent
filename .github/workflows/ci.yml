@@ -39,13 +39,44 @@ jobs:
         run: >
           uv run mypy
           app/data app/agents app/api app/services
-          app/models/agent_models.py ui/api_client.py
+          app/models/agent_models.py app/models/api_models.py
+          ui/api_client.py ui/presentation.py evaluation
 
       - name: Format check (black)
-        run: uv run black --check app tests ui streamlit_app.py
+        run: uv run black --check app tests ui evaluation scripts streamlit_app.py
 
       - name: Byte-compile
-        run: uv run python -m compileall -q app tests ui
+        run: uv run python -m compileall -q app tests ui evaluation scripts
+
+  frontend:
+    name: React workbench and API contract
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - uses: astral-sh/setup-uv@v5
+      - name: Install backend for schema export
+        run: uv sync --frozen
+      - name: Export OpenAPI without external services
+        run: uv run python scripts/export_openapi.py
+      - name: Install frontend
+        working-directory: frontend
+        run: npm ci
+      - name: Verify generated API types
+        working-directory: frontend
+        run: |
+          npm run generate:api
+          git diff --exit-code -- src/api.generated.ts
+      - name: Build
+        working-directory: frontend
+        run: npm run build
+      - name: Interaction tests
+        working-directory: frontend
+        run: npm test
 
   lockfile:
     name: Lockfile is current

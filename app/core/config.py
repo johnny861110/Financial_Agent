@@ -30,12 +30,12 @@ class Settings(BaseSettings):
     # Data Configuration
     data_dir: Path = Path("./data")
     financial_data_path: Path = Path("./data/financial_reports")
-    data_provider: str = "json"
+    data_provider: str = "financial_reports"
     financial_reports_base_url: str = "http://financial-reports:8010"
     financial_reports_timeout: float = 10.0
     financial_reports_max_retries: int = 2
     data_cache_ttl_seconds: float = 300.0
-    allow_json_fallback: bool = True
+    allow_json_fallback: bool = False
     min_data_quality_score: float = 0.6
     auto_refresh_missing_data: bool = False
 
@@ -44,7 +44,9 @@ class Settings(BaseSettings):
     api_port: int = 8000
     api_base_url: str = "http://localhost:8000"
     api_reload: bool = True
-    api_cors_origins: str = "*"
+    api_cors_origins: str = (
+        "http://localhost:5173,http://127.0.0.1:5173," "http://localhost:8501,http://127.0.0.1:8501"
+    )
 
     # Logging
     log_level: str = "INFO"

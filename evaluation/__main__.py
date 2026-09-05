@@ -6,11 +6,19 @@ python -m evaluation
 from __future__ import annotations
 
 import sys
-
-from evaluation.metrics import evaluate
+import os
 
 
 def main() -> int:
+    # This command measures fixed, deterministic scenarios. A developer's .env
+    # must not silently enable paid generation or telemetry for this check.
+    os.environ["OPENAI_API_KEY"] = ""
+    os.environ["LANGFUSE_ENABLED"] = "false"
+    os.environ["LANGFUSE_REQUIRED"] = "false"
+    from app.core.config import get_settings
+    from evaluation.metrics import evaluate
+
+    get_settings.cache_clear()
     report = evaluate()
     print("\n".join(report.as_lines()))
     # Non-zero when a deterministic measure is not perfect, so this is usable
