@@ -20,6 +20,49 @@ from app.models.agent_models import AgentQuery, AgentResponse, IntentClassificat
 
 logger = logging.getLogger(__name__)
 
+# How many evidence rows the answer prompt carries. Evidence is provenance for
+# values the deterministic layer already computed, and the prompt forbids the
+# model from re-deriving numbers out of it, so a bounded sample is enough to
+# let the answer say what backs a finding.
+MAX_PROMPT_EVIDENCE = 16
+
+
+def _composer_report_view(report: dict) -> dict:
+    """Project the research report down to what the answer prompt needs.
+
+    The full report carries every tool's evidence inline under `findings` *and*
+    again under `supporting_evidence`. Serialising it whole therefore sent the
+    same rows twice: a research-mode run reached ~43k characters, of which
+    ~32k was that duplication, and overflowed a 16k context window -- the LLM
+    rejected the request and the entire research run returned 500 from the
+    composer, after every tool had already succeeded.
+
+    Evidence rows are also the part the model needs least: they are field,
+    value, unit and source provenance for numbers the report already states.
+    """
+    findings = []
+    for finding in report.get("findings", []):
+        trimmed = {k: v for k, v in finding.items() if k != "evidence"}
+        trimmed["evidence_count"] = len(finding.get("evidence") or [])
+        findings.append(trimmed)
+
+    evidence = [
+        {
+            key: row.get(key)
+            for key in ("field", "value", "unit", "statement", "source_type")
+            if row.get(key) is not None
+        }
+        for row in report.get("supporting_evidence", [])[:MAX_PROMPT_EVIDENCE]
+    ]
+
+    view = {k: v for k, v in report.items() if k not in ("findings", "supporting_evidence")}
+    view["findings"] = findings
+    view["supporting_evidence"] = evidence
+    total_evidence = len(report.get("supporting_evidence") or [])
+    if total_evidence > len(evidence):
+        view["supporting_evidence_omitted"] = total_evidence - len(evidence)
+    return view
+
 
 class AgentState(TypedDict):
     """State for the agent workflow."""
@@ -838,7 +881,7 @@ answer using only the structured research report and filing passages below.
 User question: {state.get('query', '')}
 Stock: {state.get('stock_code')}
 Period: {state.get('period')}
-Research report: {json.dumps(report, ensure_ascii=False)}{passages}
+Research report: {json.dumps(_composer_report_view(report), ensure_ascii=False)}{passages}
 
 Requirements:
 - State the verdict and investment thesis.

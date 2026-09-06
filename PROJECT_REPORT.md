@@ -76,13 +76,17 @@ between narrow and broad behavior from the request.
 - No authentication, authorization, rate limiting, or tenant isolation exists.
 - ROIC/WACC and management analyses may rely on explicit defaults/caller input.
 - Sentiment and management guidance tools return `not_supported`.
-- There is no transcript ingestion, semantic RAG, PDF memo export, market-data
-  feed, PostgreSQL, Redis, pgvector, or bull/bear/PM multi-agent debate.
+- There is no transcript ingestion, PDF memo export, market-data feed, Redis,
+  or bull/bear/PM multi-agent debate.
+- Semantic retrieval over filing text *is* available, but only for narrative
+  questions: every financial value comes from the 34 canonical fields. The
+  PostgreSQL and pgvector that back it belong to FinancialReports; this service
+  reaches them only across the HTTP boundary.
 - Outputs require analyst review and are not investment advice.
 
 ## Verification Status
 
-The current consumer passes Black, Python compilation, mypy, and 211 pytest
+The current consumer passes Black, Python compilation, mypy, and 213 pytest
 tests. Coverage includes absence states, unit mismatch, validation filtering,
 producer metrics, missing-safe trend behavior, provider resilience, Agent
 workflow, services, and API behavior.

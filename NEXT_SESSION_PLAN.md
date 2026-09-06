@@ -15,8 +15,8 @@ here — merged PRs carry that.
 | repo | `johnny861110/Financial_Agent` | `johnny861110/FinancialReports` |
 | local | `/mnt/c/Users/johnn/GITHUB_REPO/Financial_Agent` | `/mnt/c/Users/johnn/GITHUB_REPO/FinancialReports` |
 | latest merged PR | #15 | #7 |
-| working branch | `feat/react-research-workbench` (13 ahead) | `fix/schedule-section-detection` (16 ahead) |
-| tests | 211 | 144 |
+| working branch | `feat/react-research-workbench` (17 ahead) | `fix/schedule-section-detection` (19 ahead) |
+| tests | 213 | 145 |
 | CI | gates + cross-repo smoke, green | gates on 3.10/3.11/3.12, green |
 
 **Nothing is pushed: the GitHub account is suspended.** Both repos carry
@@ -236,6 +236,15 @@ python -m evaluation      # exits non-zero if any measure is not exact
 ## 5. Traps that have already cost time
 
 Every one of these was found by running something, not by reading code.
+
+**The full test suite passing says nothing about research mode.** No test
+exercises the LLM, so `POST /api/agent/research` returned 500 for every query
+while 211 tests were green. The composer serialised the whole research report
+into the prompt, and because each tool's evidence appears both inline under
+`findings` and again under `supporting_evidence`, a real run reached ~43k
+characters and blew a 16k context window -- failing *after* every tool had
+already succeeded. Fixed 2026-09-06 by `_composer_report_view` (43k -> 3.7k).
+Curl the research endpoint against live data before believing the agent works.
 
 **`data/` is gitignored — nothing in it is committed.** A test that builds a
 service with a default `DataLoader()` silently reads the developer's local

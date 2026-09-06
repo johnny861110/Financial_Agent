@@ -9,6 +9,8 @@ two properties are what keep values trustworthy:
 2. the answer prompt tells the model the report outranks the passages.
 """
 
+import json
+
 from app.core import DataLoader
 from app.services import SnapshotService
 from tests.helpers import RecordProvider, make_record
@@ -217,3 +219,64 @@ def test_no_source_documents_does_not_leak_internal_errors_into_the_answer():
     assert context.error
     assert "127.0.0.1" not in context.error
     assert "developer.mozilla.org" not in context.error
+
+
+def test_composer_prompt_does_not_carry_evidence_twice():
+    """A research report must not be dumped whole into the answer prompt.
+
+    Every tool's evidence appears inline under `findings` and again under
+    `supporting_evidence`. Serialising the report whole sent both copies: a
+    real research run reached ~43k characters and overflowed the model's
+    context, so the request failed in the composer *after* every tool had
+    already succeeded, and the caller got a bare 500.
+    """
+    from app.agents.workflow import MAX_PROMPT_EVIDENCE, _composer_report_view
+
+    evidence = [
+        {"field": f"field_{i}", "value": i, "unit": "TWD_thousands", "confidence": 0.95}
+        for i in range(40)
+    ]
+    report = {
+        "verdict": "中性",
+        "investment_thesis": "thesis",
+        "findings": [
+            {"tool": "snapshot", "finding": "f", "confidence": 0.9, "evidence": evidence}
+        ],
+        "supporting_evidence": evidence,
+        "data_gaps": ["eps_diluted"],
+    }
+
+    view = _composer_report_view(report)
+
+    assert "evidence" not in view["findings"][0]
+    assert view["findings"][0]["evidence_count"] == 40
+    assert view["findings"][0]["finding"] == "f"
+
+    assert len(view["supporting_evidence"]) == MAX_PROMPT_EVIDENCE
+    assert view["supporting_evidence_omitted"] == 40 - MAX_PROMPT_EVIDENCE
+
+    # The narrative fields the answer is actually built from survive intact.
+    assert view["verdict"] == "中性"
+    assert view["data_gaps"] == ["eps_diluted"]
+
+    assert len(json.dumps(view, ensure_ascii=False)) < len(
+        json.dumps(report, ensure_ascii=False)
+    ) / 4
+
+
+def test_agent_routes_log_the_cause_instead_of_returning_it():
+    """The cause must reach the operator, and must not reach the caller.
+
+    `/research` discarded the exception entirely -- a failed run left nothing
+    in the logs -- while `/query` interpolated `str(e)` into the response body,
+    which is how provider URLs and upstream API text reached clients before.
+    """
+    import inspect
+
+    from app.api import agent as agent_routes
+
+    source = inspect.getsource(agent_routes)
+    assert source.count("logger.exception(") == 2
+    assert "str(e)" not in source
+    assert 'detail="Agent query failed"' in source
+    assert 'detail="Research workflow failed"' in source
