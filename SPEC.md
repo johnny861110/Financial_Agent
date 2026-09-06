@@ -109,7 +109,10 @@ are detailed in `MODIFICATION_PLAN.md`; a fixture is maintained at
 - Durable Agent memory or long-running workflow persistence
 - Multi-agent bull/bear/portfolio-manager debate
 - Target-price generation or portfolio sizing
-- PostgreSQL, Redis, pgvector, and PDF investment memo export
+- Running PostgreSQL, Redis, or pgvector *inside Financial Agent* (the
+  producer owns the database and the vector index; this service reaches
+  them only over the HTTP boundary)
+- PDF investment memo export
 
 ## Roadmap
 
@@ -125,8 +128,10 @@ are detailed in `MODIFICATION_PLAN.md`; a fixture is maintained at
 - Migrate ROIC/WACC, capital allocation, peer, and factor analysis.
 - Add deterministic tool eligibility from field state, validation, quality,
   freshness, and sector support.
-- Retrieve bounded filing text for narrative questions and return page/chunk
-  citations.
+- ~~Retrieve bounded filing text for narrative questions and return page/chunk
+  citations.~~ Done. Narrative only — numbers come from the 34 canonical
+  fields, and the response reports `retrieval.state` so a fallback ranking
+  is visible rather than passing as a search result.
 
 ### Priority 3: Production Controls
 
@@ -137,7 +142,9 @@ are detailed in `MODIFICATION_PLAN.md`; a fixture is maintained at
 
 ### Priority 4: Research Depth
 
-- Add cash-flow statement details and audited market/macro inputs.
+- ~~Add cash-flow statement details~~ Done: all seven cash-flow fields
+  (`operating_cash_flow` … `cash_ending`) are published in the snapshot's
+  `cash_flow` group. Add audited market/macro inputs.
 - Add transcript and guidance ingestion before enabling their Agent tools.
 - Add report evaluation, citation checks, and analyst approval workflows.
 - Consider additional Agent roles only after evidence quality and evaluation

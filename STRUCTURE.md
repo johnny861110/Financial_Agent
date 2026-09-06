@@ -13,6 +13,7 @@ Financial_Agent/
 |   |   `-- data.py             Readiness, refresh, and ingestion-job endpoints
 |   |-- agents/
 |   |   |-- contracts.py        ToolResult and ResearchReport contracts
+|   |   |-- retrieval.py        Filing-text passages, retrieval state, corpus version
 |   |   |-- tools.py            LangChain tools over deterministic services
 |   |   `-- workflow.py         LangGraph planning and report workflow
 |   |-- core/
@@ -32,17 +33,31 @@ Financial_Agent/
 |-- ui/
 |   |-- api_client.py           Streamlit-to-FastAPI client
 |   `-- pages/                  Analyst dashboards and Agent research UI
+|-- frontend/
+|   |-- src/api.generated.ts    Types generated from the committed OpenAPI schema
+|   |-- src/api.ts              Typed fetch client over the FastAPI boundary
+|   |-- src/App.tsx             React research workbench
+|   `-- package.json            Vite, TypeScript, and Vitest configuration
+|-- scripts/
+|   |-- export_openapi.py       Regenerate the committed OpenAPI schema
+|   `-- retrieval_benchmark.py  Score narrative retrieval against the live corpus
+|-- evaluation/                 Scenario-based agent evaluation harness
+|-- deploy/workbench.nginx.conf Static-asset and API proxy config for the workbench
 |-- data/financial_reports/     Local enhanced JSON data (runtime, ignored)
 |-- tests/
 |   |-- fixtures/               Versioned provider contract fixtures
-|   `-- test_*.py               Unit, API, provider, and workflow tests
+|   `-- test_*.py               Unit, API, provider, workflow, and precedence tests
 |-- streamlit_app.py            Streamlit entry point
 |-- convert_financial_report.py Legacy JSON conversion utility
 |-- ARCHITECTURE.md             Implemented architecture and boundaries
 |-- MODIFICATION_PLAN.md        Completed integration plan and acceptance checks
 |-- SPEC.md                     Current specification and future roadmap
-|-- Dockerfile
-`-- docker-compose.yaml
+|-- WORKBENCH.md                React workbench setup and API boundary
+|-- Dockerfile                  API and Streamlit image
+|-- Dockerfile.frontend         Workbench build and nginx runtime
+|-- docker-compose.yaml         Default stack
+|-- docker-compose.dev.yaml     Local development overrides
+`-- docker-compose.react.yaml   Stack including the React workbench
 ```
 
 ## Layering Rules
@@ -57,6 +72,9 @@ Financial_Agent/
    contract and returns `ResearchReport`/`AgentResponse`.
 6. FinancialReports owns ingestion and source evidence. This repository owns
    analytics and research orchestration.
+7. Financial values come from the canonical fields on `SnapshotRecord`; filing
+   passages are narrative evidence only. Never read a number out of retrieved
+   text -- see `ARCHITECTURE.md` §Structured Facts and Filing Text.
 
 ## Public API Groups
 

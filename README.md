@@ -69,7 +69,8 @@ The following concepts exist in docs or tool stubs but are not complete producti
 - Sentiment analysis.
 - Guidance tracking.
 - Earnings call transcript intelligence.
-- PostgreSQL, Redis, pgvector, and market-data ingestion.
+- Redis and market-data ingestion. (PostgreSQL and pgvector are no longer
+  roadmap items: FinancialReports runs on them today.)
 - Investment memo PDF export.
 - Multi-agent bull/bear/PM debate workflow.
 
@@ -487,6 +488,25 @@ curl -X POST http://localhost:8000/api/agent/research \
 The original `/api/agent/query` endpoint remains available and accepts
 `mode: auto`, `quick`, or `research`.
 
+**Numbers come from the structured tables; retrieval is for narrative only.**
+The producer publishes 34 canonical fields and all of them are surfaced through
+`/api/financials/{stock}/{period}`, each with a unit and an availability state.
+Filing text is retrieved for what a statement *says* — accounting judgement,
+impairment criteria, valuation method, subsidiaries, contingencies. Of the note
+titles in the corpus only about 1% name a canonical field, so the two barely
+overlap. This matters because a statement restates the same line item for prior
+periods, for segments and for subsidiaries: a figure read out of a retrieved
+passage is easily real and attached to the wrong period, so the answer prompt
+treats the structured report as authoritative for values and passages as
+evidence for claims.
+
+Two fields on the producer's context response are consumed and worth knowing:
+
+| Field | Why it matters |
+|---|---|
+| `retrieval.state` | Whether the question actually influenced the ranking. `present` is a real semantic match; `provider_failure` or `missing` means the chunks came back in importance order and the question was ignored. A degraded state becomes a visible data gap rather than citations that read as though they answered you. |
+| `corpus_version` | Identifies the filing's chunk corpus. A re-extract renumbers every chunk into an overlapping id range, so a stored citation resolves to *different* text rather than failing. Compare it before treating a cached citation as still valid. |
+
 ### FinancialReports Data Provider
 
 The v1 API is the shipped default. The settings it uses:
@@ -562,6 +582,22 @@ Format code:
 uv run black --check app tests ui streamlit_app.py
 ```
 
+Measure filing-text retrieval. Unlike the checks above this needs a running
+producer, which is why it is a script rather than part of `python -m
+evaluation` — that stays fixture-only and deterministic:
+
+```bash
+FINANCIAL_REPORTS_BASE_URL=http://127.0.0.1:8010 \
+  uv run python scripts/retrieval_benchmark.py --limit 20
+```
+
+It derives its probes from the corpus and excludes any note title that names a
+canonical field, because scoring retrieval on 應收帳款 or 營業收入 measures a
+path that should never be taken — those come from the structured fields. It
+also reports how many probes survived the workflow rather than only how many
+the producer returned, since a passage that is retrieved and then dropped
+before the prompt is not a passage anyone received.
+
 ## Implementation Status
 
 | Area | Status | Notes |
@@ -582,7 +618,9 @@ uv run black --check app tests ui streamlit_app.py
 | LangGraph agent | Implemented | Data readiness, deterministic planning, multi-tool research, contradiction checks, and LLM fallback. |
 | Langfuse tracing | Optional | Controlled by env vars. |
 | Sentiment / guidance tools | Not supported | Explicitly return `not_supported`; no fabricated neutral result. |
-| PostgreSQL / Redis / pgvector | Roadmap | Not part of current runtime. |
+| Filing-text retrieval | Implemented | Narrative only; numbers come from the canonical fields. Reports `retrieval.state` so a fallback ranking is visible, and `corpus_version` so stale citations are detectable. |
+| PostgreSQL / pgvector | Implemented, in the producer | FinancialReports runs `pgvector/pgvector:pg16`; chunk embeddings are a `VECTOR(768)` column queried by cosine distance. Exact search beats ANN at this corpus size, so no index is maintained — see that project's `schema.sql` for the restore statement if that changes. |
+| Redis | Roadmap | Not part of current runtime. |
 | PDF investment memo | Roadmap | Not implemented. |
 
 ## Formula Notes

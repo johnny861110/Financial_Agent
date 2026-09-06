@@ -188,14 +188,19 @@ flowchart TD
         MissingRefresh{Missing and auto-refresh enabled?}
         Refresh[Request FinancialReports refresh and mark processing]
 
-        Planner[3. Research planner]
+        Filing[3. Filing-text retrieval]
+        Numeric{Data available and question needs narrative?}
+        NoRetrieval[Leave filing_text empty]
+        Retrieve[Retrieve passages and report retrieval.state]
+
+        Planner[4. Research planner]
         Broad{Research mode or broad question?}
         SinglePlan[Plan selected intent only]
         CorePlan[Plan snapshot, trend, earnings quality, ROIC/WACC, EWS]
         HasPeers{At least two peers?}
         PeerPlan[Add peer and factor tools]
 
-        Executor[4. Research executor]
+        Executor[5. Research executor]
         Available{Data available?}
         ReadinessResult[Create missing or failed readiness ToolResult]
         NextTool[Select next planned tool]
@@ -209,7 +214,7 @@ flowchart TD
         Review[Detect contradictions]
         Report[Build ResearchReport, verdict and confidence]
 
-        Composer[5. Answer composer]
+        Composer[6. Answer composer]
         Findings{Any successful findings?}
         NoData[Compose bilingual data-unavailable answer]
         ComposeLLM{LLM key configured?}
@@ -224,10 +229,14 @@ flowchart TD
         Keyword --> Ready
 
         Ready --> Management
-        Management -->|yes| NotRequired --> Planner
+        Management -->|yes| NotRequired --> Filing
         Management -->|no| ProviderCheck --> MissingRefresh
-        MissingRefresh -->|yes| Refresh --> Planner
-        MissingRefresh -->|no| Planner
+        MissingRefresh -->|yes| Refresh --> Filing
+        MissingRefresh -->|no| Filing
+
+        Filing --> Numeric
+        Numeric -->|no| NoRetrieval --> Planner
+        Numeric -->|yes| Retrieve --> Planner
 
         Planner --> Broad
         Broad -->|no| SinglePlan --> Executor
@@ -267,6 +276,7 @@ flowchart TD
 | State initialization | `FinancialAgent.query` | Query, stock, period, mode, context, and empty result collections |
 | Intent routing | `_intent_router_node` | Intent and extracted entities; keyword fallback on missing key or LLM error |
 | Data readiness | `_data_readiness_node` | Availability, status, quality, freshness warnings, evidence, and optional job ID |
+| Filing-text retrieval | `_filing_text_node` over `app/agents/retrieval.py` | `filing_text`: passages with page/chunk citations, `retrieval.state`, and `corpus_version`; empty for numeric-only questions |
 | Planning | `_research_planner_node` | Deduplicated ordered `research_plan` |
 | Tool execution | `_research_executor_node` | One normalized `ToolResult` per planned tool |
 | Cross-tool review | `_detect_contradictions` | Contradiction messages for supported rule combinations |
@@ -279,6 +289,29 @@ does not terminate the remaining plan: it becomes an `insufficient_data` or
 `failed` result and the report records the resulting gap. Confidence starts
 from the mean of successful tool confidence values, is multiplied by source
 quality when available, and receives a further penalty when data gaps remain.
+
+### Structured Facts and Filing Text
+
+The two evidence paths are not peers, and the boundary between them is a design
+rule rather than a ranking preference:
+
+| Path | Answers | Source |
+| --- | --- | --- |
+| Structured facts | Every financial *value* | The 34 canonical fields the producer publishes, populated from the FinMind API |
+| Filing text | What the filing *says* — accounting policy, judgements, valuation technique, subsidiaries, contingencies | Retrieved passages with page and chunk citations |
+
+A statement restates the same line item for prior periods, segments and
+subsidiaries, so a number lifted from a passage is easily real and attached to
+the wrong period. The answer prompt therefore states that the structured report
+is authoritative for values.
+
+`_filing_text_node` keeps whatever retrieval produced and never gates on
+question topic: an earlier topic allowlist here silently discarded good
+passages for questions outside its hand-written keyword families. The node
+also carries `retrieval.state` through, so a degraded ranking (the producer
+fell back to importance order and ignored the question) surfaces as a data gap
+instead of citations that read as though they answered the question. See
+README §Evidence-Backed Research for the field semantics.
 
 ### Agent Execution Modes
 
