@@ -3,7 +3,7 @@
 # Smoke-test the built image, not the source tree.
 #
 # Every pytest run imports from the working copy, so a dependency that is
-# missing from the *image* is invisible to all 222 of them. That is not
+# missing from the *image* is invisible to all of them. That is not
 # hypothetical: the producer shipped an image without its pdf extra and the
 # failure surfaced as silently empty extraction, and this repo shipped a
 # compose default of LLM_TEMPERATURE=1.0 that no test could see because tests
@@ -83,8 +83,19 @@ revenue=$(printf '%s' "$snapshot" | python3 -c \
 if [ -z "$revenue" ]; then
   fail "no net_revenue for 3661/2025Q1 -- cannot check the numeric path"
 else
+  # Two acceptable renderings of the same figure: the raw thousands, and the
+  # 萬/億/兆 form the answer composer now uses -- 10,484,855 千元 IS 104.85 億元.
+  # Both are derived from the API's own value, so a wrong number still fails.
   formatted=$(printf '%s' "$revenue" | python3 -c \
     'import sys; print(f"{float(sys.stdin.read().strip()):,.0f}")')
+  scaled=$(printf '%s' "$revenue" | python3 -c '
+import sys
+t = float(sys.stdin.read().strip())
+for scale, suffix in ((1e9, "兆"), (1e5, "億"), (1e1, "萬")):
+    if abs(t) >= scale:
+        print(f"{t / scale:,.2f} {suffix}"); break
+else:
+    print(f"{t:,.0f} 千")')
   answer=$(curl -sf -m 180 -X POST "$API/api/agent/query" \
     -H 'Content-Type: application/json' \
     -d '{"query":"2025Q1 的營業收入是多少？","stock_code":"3661","period":"2025Q1","mode":"quick"}' \
@@ -96,8 +107,10 @@ else
     fail "numeric query returned nothing"
   elif printf '%s' "$answer" | grep -qF "$formatted"; then
     pass "numeric query reports $formatted, matching the snapshot"
+  elif printf '%s' "$answer" | grep -qF "${scaled% *}"; then
+    pass "numeric query reports $scaled元, matching the snapshot"
   else
-    fail "numeric query did not report $formatted -- got: $(printf '%s' "$answer" | head -c 160)"
+    fail "numeric query reported neither $formatted nor $scaled元 -- got: $(printf '%s' "$answer" | head -c 160)"
   fi
 fi
 

@@ -243,11 +243,60 @@ def tool_snapshot(stock_code: str, period: str) -> Dict[str, Any]:
         return _result(
             "snapshot",
             "success",
-            finding="Financial snapshot loaded",
+            finding=_snapshot_finding(result, stock_code, period),
             data=result,
             confidence=0.85,
         )
     return _result("snapshot", "not_found", error="Data not found")
+
+
+def _money(value: Any) -> str:
+    """Render a TWD-thousands figure at a scale a person reads.
+
+    Values arrive in thousands, so a large company's cash prints as
+    `3035637228.0` -- thirteen digits that nobody parses. TSMC's total assets
+    are 8.66 兆, not 8660949685 千元.
+    """
+    if not isinstance(value, (int, float)):
+        return "資料缺漏"
+    thousands = float(value)
+    for scale, suffix in ((1e9, "兆"), (1e5, "億"), (1e1, "萬")):
+        if abs(thousands) >= scale:
+            return f"{thousands / scale:,.2f} {suffix}元"
+    return f"{thousands:,.0f} 千元"
+
+
+def _pct(value: Any) -> str:
+    return f"{value:.2f}%" if isinstance(value, (int, float)) else "資料缺漏"
+
+
+def _snapshot_finding(result: Dict[str, Any], stock_code: str, period: str) -> str:
+    """Summarise the snapshot instead of announcing that it loaded.
+
+    The previous text was the literal string "Financial snapshot loaded", and
+    because the report's investment thesis is built by joining tool findings,
+    a single-tool run published a status message as its investment thesis --
+    twice in the same answer. Every other tool already returns its own
+    commentary; this one was the outlier.
+    """
+    income = result.get("income_statement") or {}
+    margins = result.get("margins") or {}
+    balance = result.get("balance_sheet") or {}
+    structure = result.get("financial_structure") or {}
+    returns = result.get("returns") or {}
+
+    parts = [
+        f"{stock_code} {period}：營收 {_money(income.get('net_revenue'))}",
+        f"淨利 {_money(income.get('net_income'))}",
+        f"毛利率 {_pct(margins.get('gross_margin'))}",
+        f"營業利益率 {_pct(margins.get('operating_margin'))}",
+        f"淨利率 {_pct(margins.get('net_margin'))}",
+        f"總資產 {_money(balance.get('total_assets'))}",
+        f"負債比 {_pct(structure.get('debt_ratio'))}",
+        f"ROE {_pct(returns.get('roe'))}",
+    ]
+    # No trailing period: findings are joined with "；" to form the thesis.
+    return "、".join(parts)
 
 
 @tool

@@ -377,3 +377,89 @@ def test_answer_prompt_forbids_calling_a_present_figure_missing():
     source = inspect.getsource(FinancialAgent)
     assert "Never say a figure is missing or unavailable while it is present" in source
     assert "Answer the user's question first and directly." in source
+
+
+def test_a_request_for_analysis_plans_more_than_one_tool():
+    """ "整體表現幫我分析" must not return a snapshot and call it analysis.
+
+    Broad-question detection was a ten-entry keyword allowlist, and that phrase
+    -- which is nothing but a request for broad analysis -- matched none of it.
+    The run planned one tool, and the answer was a balance sheet with the
+    investment thesis "Financial snapshot loaded". Same failure the filing-text
+    retriever had: a hand-written allowlist under-triggers silently.
+    """
+    from app.agents.workflow import _asks_for_broad_analysis
+
+    for query in (
+        "整體表現幫我分析",
+        "這家公司值得投資嗎",
+        "財務體質如何",
+        "幫我評估一下",
+        "overall performance review",
+    ):
+        assert _asks_for_broad_analysis(query), query
+
+    # A question naming a specific metric keeps its cheap single-tool plan.
+    for query in ("2025Q1 毛利率多少", "營業收入是多少", "ROIC 跟 WACC 差多少", "free cash flow"):
+        assert not _asks_for_broad_analysis(query), query
+
+
+def test_snapshot_reports_figures_rather_than_announcing_it_loaded():
+    """The thesis is built by joining tool findings, so a status string becomes one.
+
+    `tool_snapshot` returned the literal "Financial snapshot loaded" while every
+    other tool returned real commentary. A single-tool run therefore published
+    "投資論點：Financial snapshot loaded" -- twice in the same answer.
+    """
+    from app.agents.tools import _snapshot_finding
+
+    finding = _snapshot_finding(
+        {
+            "income_statement": {"net_revenue": 1134103440.0, "net_income": 572801304.0},
+            "margins": {"gross_margin": 66.25, "operating_margin": 58.10, "net_margin": 50.51},
+            "balance_sheet": {"total_assets": 8660949685.0},
+            "financial_structure": {"debt_ratio": 31.50},
+            "returns": {"roe": 9.66},
+        },
+        "2330",
+        "2026Q1",
+    )
+
+    assert "loaded" not in finding.lower()
+    assert "1.13 兆元" in finding and "66.25%" in finding
+    # No trailing period: findings are joined with "；" into the thesis.
+    assert not finding.endswith("。")
+
+
+def test_money_is_rendered_at_a_scale_a_person_reads():
+    """Values are TWD thousands, so raw digits are unreadable and get misread."""
+    from app.agents.tools import _money
+
+    assert _money(8660949685.0) == "8.66 兆元"
+    assert _money(572801304.0) == "5,728.01 億元"
+    assert _money(15503.0) == "1,550.30 萬元"
+    # 123 thousands is 123,000 TWD, i.e. 12.3 萬 -- not "123 千元". Only a value
+    # below the 萬 threshold stays in thousands.
+    assert _money(123.0) == "12.30 萬元"
+    assert _money(5.0) == "5 千元"
+    assert _money(None) == "資料缺漏"
+    # Negative cash flows keep their sign rather than reading as inflows.
+    assert _money(-3389344.0).startswith("-")
+
+
+def test_answer_prompt_requires_gaps_and_forbids_empty_sections():
+    """Two rules that each cost the reader something when dropped.
+
+    Without the first the answer printed "矛盾：無" -- a heading whose content
+    is that there is no content. Without the second, tightening the first made
+    the model drop a *non-empty* 資料缺口 list, presenting a partial analysis
+    as a complete one.
+    """
+    import inspect
+
+    from app.agents.workflow import FinancialAgent
+
+    source = inspect.getsource(FinancialAgent)
+    assert "Omit any section that would be empty" in source
+    assert "`data_gaps` is the exception" in source
+    assert "Never attach a passage citation to a" in source

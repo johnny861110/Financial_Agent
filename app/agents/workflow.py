@@ -33,6 +33,97 @@ MAX_PROMPT_EVIDENCE_CHARS = 12000
 _EVIDENCE_KEYS = ("field", "value", "unit", "statement", "source_type")
 
 
+# Words that name a specific thing to look up. A question containing one of
+# these is asking for that thing, so the intent router's single-tool plan is
+# right and running five tools would be waste.
+_NARROW_TERMS = (
+    "毛利",
+    "營收",
+    "營業收入",
+    "淨利",
+    "eps",
+    "每股",
+    "現金流",
+    "存貨",
+    "應收",
+    "負債比",
+    "流動比",
+    "股東權益",
+    "總資產",
+    "稅",
+    "研發",
+    "資本支出",
+    "股利",
+    "roic",
+    "wacc",
+    "roe",
+    "roa",
+    "因子",
+    "同業",
+    "peer",
+    "margin",
+    "revenue",
+    "inventory",
+    "receivable",
+    "cash flow",
+    "dividend",
+    "capex",
+)
+
+# Words that ask for a judgement rather than a number.
+_ANALYSIS_TERMS = (
+    "分析",
+    "評估",
+    "表現",
+    "狀況",
+    "如何",
+    "怎麼樣",
+    "怎樣",
+    "體質",
+    "健康",
+    "值得",
+    "持有",
+    "投資",
+    "看法",
+    "建議",
+    "整體",
+    "全面",
+    "綜合",
+    "完整",
+    "overall",
+    "analys",
+    "assess",
+    "evaluat",
+    "performance",
+    "health",
+    "worth",
+    "hold",
+    "invest",
+    "review",
+    "outlook",
+)
+
+
+def _asks_for_broad_analysis(query: str) -> bool:
+    """Decide whether a question wants a judgement or a specific figure.
+
+    This replaced a ten-entry keyword allowlist that "整體表現幫我分析" missed
+    entirely -- a question that is nothing *but* a request for broad analysis
+    ran one tool and returned a snapshot. It is the same failure the filing-text
+    retriever had: a hand-written allowlist silently under-triggers, and the
+    miss looks like a normal answer rather than an error.
+
+    So the test is inverted. A question that names a specific metric is narrow
+    and keeps its single-tool plan. Anything that asks for a judgement without
+    naming one is broad. Erring broad costs extra tool calls; erring narrow
+    returns a balance sheet to someone who asked what they should think.
+    """
+    q = query.lower()
+    if any(term in q for term in _NARROW_TERMS):
+        return False
+    return any(term in q for term in _ANALYSIS_TERMS)
+
+
 def _composer_report_view(report: dict) -> dict:
     """Project the research report down to what the answer prompt needs.
 
@@ -375,19 +466,7 @@ class FinancialAgent:
         intent = state.get("intent", "snapshot")
         mode = state.get("mode", "auto")
         query = state.get("query", "").lower()
-        broad_terms = [
-            "financial health",
-            "worth",
-            "hold",
-            "invest",
-            "complete analysis",
-            "完整分析",
-            "值得",
-            "持有",
-            "投資",
-            "財務健康",
-        ]
-        broad_question = mode == "research" or any(term in query for term in broad_terms)
+        broad_question = mode == "research" or _asks_for_broad_analysis(query)
 
         if mode == "quick" or not broad_question:
             plan = [intent if intent != "default" else "snapshot"]
@@ -908,11 +987,25 @@ Requirements:
   from reporting a wrong number.
 - Cite only the figures the question calls for. Do not list the whole evidence
   block.
+- Monetary values are in TWD *thousands*. Convert to 萬/億/兆 so a reader can
+  read them: 8660949685 千元 is 8.66 兆元, and printing the raw digits is
+  useless to a person. Keep the converted figure exact.
 - State the verdict and investment thesis.
 - Separate evidence, risks, contradictions, and data gaps.
+- Omit any section that would be empty. Do not write a heading followed by
+  "無", and do not report that a category was not listed: an absence of risks
+  or contradictions is not a finding, and "矛盾：無" tells the reader nothing.
+- `data_gaps` is the exception: when it is non-empty you must list every entry
+  under a 資料缺口 heading. A gap is a limit on what the answer is worth, and
+  dropping it presents a partial analysis as a complete one.
+- Do not restate the verdict and thesis in a closing paragraph. Say each once.
 - Do not add prices, forecasts, recommendations, or facts absent from the report.
 - Explicitly qualify low-confidence or assumption-based findings.
-- Every claim drawn from a filing passage must cite its bracketed source.
+- Cite a filing passage only for a claim that came from that passage, using
+  its bracketed source exactly as given. Never attach a passage citation to a
+  figure: figures come from the research report, and labelling one with a
+  section reference tells the reader it was read out of the filing text when
+  it was not. Attribute figures to the report, or do not attribute them.
 - The two sources are not peers. The research report carries the canonical
   figures for this company and period, each with its own unit and period. Use
   it for every value. Filing passages are for what the filing *says* --
