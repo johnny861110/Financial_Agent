@@ -1062,6 +1062,7 @@ export interface components {
         /** FinancialSnapshotResponse */
         FinancialSnapshotResponse: {
             balance_sheet: components["schemas"]["SnapshotBalanceSheet"];
+            cash_flow?: components["schemas"]["SnapshotCashFlow"];
             data_context: components["schemas"]["SnapshotDataContext"];
             financial_structure: components["schemas"]["SnapshotFinancialStructure"];
             identification: components["schemas"]["SnapshotIdentification"];
@@ -1315,14 +1316,47 @@ export interface components {
         };
         /** SnapshotBalanceSheet */
         SnapshotBalanceSheet: {
+            /** Accounts Payable */
+            accounts_payable?: number | null;
+            /** Accounts Receivable */
+            accounts_receivable?: number | null;
             /** Cash And Equivalents */
             cash_and_equivalents?: number | null;
+            /** Current Assets */
+            current_assets?: number | null;
+            /** Current Liabilities */
+            current_liabilities?: number | null;
             /** Equity */
             equity?: number | null;
+            /** Equity Attributable To Parent */
+            equity_attributable_to_parent?: number | null;
+            /** Inventory */
+            inventory?: number | null;
+            /** Retained Earnings */
+            retained_earnings?: number | null;
+            /** Share Capital */
+            share_capital?: number | null;
             /** Total Assets */
             total_assets?: number | null;
             /** Total Liabilities */
             total_liabilities?: number | null;
+        };
+        /** SnapshotCashFlow */
+        SnapshotCashFlow: {
+            /** Capex */
+            capex?: number | null;
+            /** Cash Beginning */
+            cash_beginning?: number | null;
+            /** Cash Ending */
+            cash_ending?: number | null;
+            /** Financing Cash Flow */
+            financing_cash_flow?: number | null;
+            /** Free Cash Flow */
+            free_cash_flow?: number | null;
+            /** Investing Cash Flow */
+            investing_cash_flow?: number | null;
+            /** Operating Cash Flow */
+            operating_cash_flow?: number | null;
         };
         /** SnapshotDataContext */
         SnapshotDataContext: {
@@ -1367,16 +1401,36 @@ export interface components {
         };
         /** SnapshotIncomeStatement */
         SnapshotIncomeStatement: {
+            /** Comprehensive Income */
+            comprehensive_income?: number | null;
             /** Eps */
             eps?: number | null;
+            /** Eps Diluted */
+            eps_diluted?: number | null;
             /** Gross Profit */
             gross_profit?: number | null;
+            /** Loan Loss Provisions */
+            loan_loss_provisions?: number | null;
             /** Net Income */
             net_income?: number | null;
+            /** Net Income Attributable To Parent */
+            net_income_attributable_to_parent?: number | null;
+            /** Net Interest Income */
+            net_interest_income?: number | null;
+            /** Net Non Interest Income */
+            net_non_interest_income?: number | null;
             /** Net Revenue */
             net_revenue?: number | null;
+            /** Operating Expenses */
+            operating_expenses?: number | null;
             /** Operating Income */
             operating_income?: number | null;
+            /** Profit Before Tax */
+            profit_before_tax?: number | null;
+            /** Rd Expenses */
+            rd_expenses?: number | null;
+            /** Tax Expense */
+            tax_expense?: number | null;
         };
         /** SnapshotMargins */
         SnapshotMargins: {

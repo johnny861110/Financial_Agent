@@ -30,8 +30,18 @@ class SnapshotIncomeStatement(BaseModel):
     net_revenue: float | None = None
     gross_profit: float | None = None
     operating_income: float | None = None
+    profit_before_tax: float | None = None
     net_income: float | None = None
+    net_income_attributable_to_parent: float | None = None
+    operating_expenses: float | None = None
+    rd_expenses: float | None = None
+    tax_expense: float | None = None
+    comprehensive_income: float | None = None
+    net_interest_income: float | None = None
+    net_non_interest_income: float | None = None
+    loan_loss_provisions: float | None = None
     eps: float | None = None
+    eps_diluted: float | None = None
 
 
 class SnapshotMargins(BaseModel):
@@ -41,10 +51,28 @@ class SnapshotMargins(BaseModel):
 
 
 class SnapshotBalanceSheet(BaseModel):
+    cash_and_equivalents: float | None = None
+    accounts_receivable: float | None = None
+    inventory: float | None = None
+    current_assets: float | None = None
     total_assets: float | None = None
+    accounts_payable: float | None = None
+    current_liabilities: float | None = None
     total_liabilities: float | None = None
     equity: float | None = None
-    cash_and_equivalents: float | None = None
+    equity_attributable_to_parent: float | None = None
+    retained_earnings: float | None = None
+    share_capital: float | None = None
+
+
+class SnapshotCashFlow(BaseModel):
+    operating_cash_flow: float | None = None
+    investing_cash_flow: float | None = None
+    financing_cash_flow: float | None = None
+    capex: float | None = None
+    free_cash_flow: float | None = None
+    cash_beginning: float | None = None
+    cash_ending: float | None = None
 
 
 class SnapshotFinancialStructure(BaseModel):
@@ -72,6 +100,7 @@ class FinancialSnapshotResponse(BaseModel):
     income_statement: SnapshotIncomeStatement
     margins: SnapshotMargins
     balance_sheet: SnapshotBalanceSheet
+    cash_flow: SnapshotCashFlow = Field(default_factory=SnapshotCashFlow)
     financial_structure: SnapshotFinancialStructure
     returns: SnapshotReturns
     data_context: SnapshotDataContext

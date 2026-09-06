@@ -47,17 +47,47 @@ class SnapshotService:
         if snapshot is None:
             return None
 
+        # Every canonical monetary field the producer publishes, not just the
+        # headline ones. A number that exists upstream and is not surfaced here
+        # is a number the agent has to go looking for in filing prose, where
+        # the same term appears for prior periods and for segments -- so the
+        # answer comes back real but attached to the wrong period.
         money_fields = [
+            # income statement
             "net_revenue",
             "gross_profit",
             "operating_income",
+            "profit_before_tax",
             "net_income",
+            "net_income_attributable_to_parent",
+            "operating_expenses",
+            "rd_expenses",
+            "tax_expense",
+            "comprehensive_income",
+            "net_interest_income",
+            "net_non_interest_income",
+            "loan_loss_provisions",
+            # balance sheet
+            "cash_and_equivalents",
+            "accounts_receivable",
+            "inventory",
+            "current_assets",
             "total_assets",
+            "accounts_payable",
+            "current_liabilities",
             "total_liabilities",
             "equity",
-            "cash_and_equivalents",
-            "current_assets",
-            "current_liabilities",
+            "equity_attributable_to_parent",
+            "retained_earnings",
+            "share_capital",
+            # cash flow
+            "operating_cash_flow",
+            "investing_cash_flow",
+            "financing_cash_flow",
+            "capex",
+            "free_cash_flow",
+            "cash_beginning",
+            "cash_ending",
         ]
 
         def money(field: str) -> float | None:
@@ -89,8 +119,18 @@ class SnapshotService:
                 "net_revenue": money("net_revenue"),
                 "gross_profit": money("gross_profit"),
                 "operating_income": money("operating_income"),
+                "profit_before_tax": money("profit_before_tax"),
                 "net_income": money("net_income"),
+                "net_income_attributable_to_parent": money("net_income_attributable_to_parent"),
+                "operating_expenses": money("operating_expenses"),
+                "rd_expenses": money("rd_expenses"),
+                "tax_expense": money("tax_expense"),
+                "comprehensive_income": money("comprehensive_income"),
+                "net_interest_income": money("net_interest_income"),
+                "net_non_interest_income": money("net_non_interest_income"),
+                "loan_loss_provisions": money("loan_loss_provisions"),
                 "eps": context.optional_value("eps_basic", "TWD_per_share"),
+                "eps_diluted": context.optional_value("eps_diluted", "TWD_per_share"),
             },
             "margins": {
                 "gross_margin": rounded(
@@ -104,10 +144,27 @@ class SnapshotService:
                 ),
             },
             "balance_sheet": {
+                "cash_and_equivalents": money("cash_and_equivalents"),
+                "accounts_receivable": money("accounts_receivable"),
+                "inventory": money("inventory"),
+                "current_assets": money("current_assets"),
                 "total_assets": money("total_assets"),
+                "accounts_payable": money("accounts_payable"),
+                "current_liabilities": money("current_liabilities"),
                 "total_liabilities": money("total_liabilities"),
                 "equity": money("equity"),
-                "cash_and_equivalents": money("cash_and_equivalents"),
+                "equity_attributable_to_parent": money("equity_attributable_to_parent"),
+                "retained_earnings": money("retained_earnings"),
+                "share_capital": money("share_capital"),
+            },
+            "cash_flow": {
+                "operating_cash_flow": money("operating_cash_flow"),
+                "investing_cash_flow": money("investing_cash_flow"),
+                "financing_cash_flow": money("financing_cash_flow"),
+                "capex": money("capex"),
+                "free_cash_flow": money("free_cash_flow"),
+                "cash_beginning": money("cash_beginning"),
+                "cash_ending": money("cash_ending"),
             },
             "financial_structure": {
                 "debt_ratio": rounded(
