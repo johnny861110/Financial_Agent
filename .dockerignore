@@ -71,3 +71,13 @@ Thumbs.db
 tests/
 __pycache__/
 *.pyc
+
+# Frontend build artifacts
+#
+# node_modules is 122MB of build context, and `COPY frontend/ ./` in
+# Dockerfile.frontend would lay the host's copy over the `npm ci` the image
+# just ran -- host-built native modules replacing the container's.
+frontend/node_modules/
+frontend/dist/
+*.tsbuildinfo
+graphify-out/

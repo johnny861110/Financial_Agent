@@ -14,10 +14,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-# This build network runs at roughly 270 KB/s. Downloading in parallel starved
-# the smaller wheels -- streamlit's 9.7MB had not arrived after 325s while
-# pyarrow's 40.8MB shared the link -- so downloads are serialized: each one then
-# gets the whole pipe and finishes well inside the timeout.
+# This build network runs at roughly 270 KB/s. Downloading in parallel starves
+# the smaller wheels: one large wheel sharing the link leaves a small one still
+# unfinished after several minutes, so downloads are serialized and each gets
+# the whole pipe. The original evidence was streamlit's 9.7MB stalling behind
+# pyarrow's 40.8MB; both left with the Streamlit removal, and pandas at 45MB is
+# now the largest, so the constraint is the link rather than any one package.
 ENV UV_HTTP_TIMEOUT=300 \
     UV_CONCURRENT_DOWNLOADS=1
 

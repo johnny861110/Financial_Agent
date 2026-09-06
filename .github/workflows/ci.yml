@@ -40,13 +40,13 @@ jobs:
           uv run mypy
           app/data app/agents app/api app/services
           app/models/agent_models.py app/models/api_models.py
-          ui/api_client.py ui/presentation.py evaluation
+          evaluation
 
       - name: Format check (black)
-        run: uv run black --check app tests ui evaluation scripts streamlit_app.py
+        run: uv run black --check app tests evaluation scripts
 
       - name: Byte-compile
-        run: uv run python -m compileall -q app tests ui evaluation scripts
+        run: uv run python -m compileall -q app tests evaluation scripts
 
   frontend:
     name: React workbench and API contract

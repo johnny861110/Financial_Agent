@@ -25,20 +25,17 @@ x-common-env: &common-env
   AUTO_REFRESH_MISSING_DATA: ${AUTO_REFRESH_MISSING_DATA:-false}
   LOG_LEVEL: ${LOG_LEVEL:-INFO}
 
-x-build: &build
-  build:
-    context: .
-    dockerfile: Dockerfile
-    # The default bridge sets MTU 1500 while this host's uplink (eth0) is 1280,
-    # so large downloads stall mid-transfer during builds -- observed as wheels
-    # cut off after ~1MB and "Connection reset by peer". Building on the host
-    # network uses the correct MTU.
-    network: host
-  image: financial-agent:latest
-
 services:
   api:
-    <<: *build
+    build:
+      context: .
+      dockerfile: Dockerfile
+      # The default bridge sets MTU 1500 while this host's uplink (eth0) is
+      # 1280, so large downloads stall mid-transfer during builds -- observed
+      # as wheels cut off after ~1MB and "Connection reset by peer". Building
+      # on the host network uses the correct MTU.
+      network: host
+    image: financial-agent:latest
     container_name: financial-agent-api
     restart: unless-stopped
     ports:
@@ -75,6 +72,12 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.frontend
+      # `npm ci` downloads too; same MTU reasoning as the API build above.
+      network: host
+    # Pinned rather than left to compose's project-name default, which is
+    # `financial_agent-web` -- an underscore where every other name here uses a
+    # hyphen, and a name you cannot guess when tagging an image by hand.
+    image: financial-agent-web:latest
     container_name: financial-agent-web
     restart: unless-stopped
     ports:
