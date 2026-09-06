@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import time
 from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
@@ -11,6 +12,8 @@ import httpx
 
 from app.data.models import DataFreshness, EvidenceReference, SnapshotRecord
 from app.models import FinancialSnapshot
+
+logger = logging.getLogger(__name__)
 
 
 class FinancialDataProviderError(RuntimeError):
@@ -216,6 +219,20 @@ class FinancialReportsProvider:
                     source="financial_reports",
                     job_id=body.get("job_id"),
                 )
+            if error.get("code") == "filing_has_no_source_documents":
+                # A permanent, filing-specific condition: no document was ever
+                # obtained, so retrying cannot help. Treated as absent data
+                # rather than an error, because the alternative -- letting it
+                # reach the >= 500 branch as it did while the producer returned
+                # 503 -- reports one empty filing as the whole service being
+                # down, and makes a real outage indistinguishable from it.
+                logger.info(
+                    "FinancialReports has no source document for %s %s; treating as no data",
+                    stock_code,
+                    period,
+                )
+                self._record_cache.pop(cache_key, None)
+                return None
             raise FinancialDataContractError(
                 f"FinancialReports rejected the filing state: {error.get('message', response.text)}"
             )
@@ -351,6 +368,22 @@ class FinancialReportsProvider:
             params=params,
         )
         if response.status_code == 404:
+            return None
+        if response.status_code == 409:
+            # Same permanent per-filing condition the record path handles. Without
+            # this the raw httpx error reached the user's data-gap list carrying
+            # the internal service URL, the encoded question and a link to the
+            # MDN page for 409 -- an internal failure rendered as if it were a
+            # finding about the filing.
+            body = self._response_object(response)
+            raw_error = body.get("error")
+            error: dict[str, Any] = raw_error if isinstance(raw_error, dict) else {}
+            logger.info(
+                "FinancialReports has no filing context for %s %s (%s)",
+                stock_code,
+                period,
+                error.get("code", "409"),
+            )
             return None
         response.raise_for_status()
         return self._response_object(response)
