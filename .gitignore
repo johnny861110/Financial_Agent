@@ -62,6 +62,13 @@ htmlcov/
 !frontend/package.json
 !frontend/package-lock.json
 !frontend/tsconfig*.json
+
+# Re-ignored after the negations above, which is where it has to be:
+# gitignore takes the LAST matching rule, so a negation added to that list
+# could otherwise un-ignore a permission allowlist carrying absolute paths
+# under the user's home. The entry near the top of this file is shadowed by
+# `*.json` and cannot be relied on alone.
+.claude/settings.local.json
 *.csv
 *.pdf
 
