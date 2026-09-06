@@ -59,12 +59,11 @@ WORKDIR /app
 
 COPY --from=builder --chown=appuser:appuser /app/.venv /app/.venv
 COPY --chown=appuser:appuser app/ ./app/
-COPY --chown=appuser:appuser ui/ ./ui/
-COPY --chown=appuser:appuser streamlit_app.py convert_financial_report.py ./
+COPY --chown=appuser:appuser convert_financial_report.py ./
 COPY --chown=appuser:appuser data/ ./data/
 
 USER appuser
 
-EXPOSE 8000 8501
+EXPOSE 8000
 
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

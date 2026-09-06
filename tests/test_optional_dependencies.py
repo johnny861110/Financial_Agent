@@ -38,9 +38,29 @@ def test_compose_declares_no_external_networks(compose):
 
 
 def test_services_reach_companion_projects_through_the_host_gateway(compose):
-    """The hostnames used in default URLs have to resolve without a shared network."""
-    for name, service in compose["services"].items():
-        hosts = {entry.split(":")[0] for entry in service.get("extra_hosts", [])}
+    """The hostnames used in default URLs have to resolve without a shared network.
+
+    Scoped to the services that actually dial out. This used to assert it of
+    every service, which held only while every service was a Python app: `web`
+    is nginx serving a static build and proxying /api over the compose network,
+    so it never resolves either hostname and giving it `extra_hosts` to satisfy
+    a test would be cargo cult.
+
+    The scoping is derived from the environment rather than hardcoded, so a new
+    service that reads FINANCIAL_REPORTS_BASE_URL is covered automatically.
+    """
+    dialers = {
+        name
+        for name, service in compose["services"].items()
+        if any(
+            key in (service.get("environment") or {})
+            for key in ("FINANCIAL_REPORTS_BASE_URL", "LANGFUSE_BASE_URL")
+        )
+    }
+    assert dialers, "no service reads the companion-project URLs; this test is now vacuous"
+
+    for name in dialers:
+        hosts = {entry.split(":")[0] for entry in compose["services"][name].get("extra_hosts", [])}
         assert "financial-reports" in hosts, f"{name} cannot resolve financial-reports"
         assert "langfuse-web" in hosts, f"{name} cannot resolve langfuse-web"
 

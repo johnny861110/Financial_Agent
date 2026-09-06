@@ -7,7 +7,7 @@
 ## Product Scope
 
 Financial Agent provides auditable financial-statement analytics through
-FastAPI and Streamlit. It combines deterministic financial services with a
+FastAPI and a React workbench. It combines deterministic financial services with a
 LangGraph research workflow. Raw filing ingestion, parsing, validation, and
 canonical evidence belong to FinancialReports.
 
@@ -66,7 +66,8 @@ declared and tested.
 - Preserve `POST /api/agent/query` compatibility.
 - Provide full research through `POST /api/agent/research`.
 - Run blocking services and graph execution outside the async event loop.
-- Make Streamlit consume FastAPI rather than import backend services.
+- ~~Make Streamlit consume FastAPI rather than import backend services.~~
+  Superseded: Streamlit was removed once the React workbench reached parity.
 - Provide process liveness and provider-aware readiness endpoints.
 
 ## Non-Functional Requirements

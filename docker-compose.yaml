@@ -49,7 +49,9 @@ services:
       API_PORT: "8000"
       API_BASE_URL: http://api:8000
       API_RELOAD: "false"
-      API_CORS_ORIGINS: ${API_CORS_ORIGINS:-http://localhost:5173,http://127.0.0.1:5173,http://localhost:8501,http://127.0.0.1:8501}
+      # The containerised workbench proxies through nginx and is same-origin;
+      # only the Vite dev server needs an entry here.
+      API_CORS_ORIGINS: ${API_CORS_ORIGINS:-http://localhost:5173,http://127.0.0.1:5173}
     volumes:
       - ./data:/app/data:ro
       - ./logs:/app/logs
@@ -69,35 +71,27 @@ services:
     networks:
       - financial-agent-network
 
-  ui:
-    <<: *build
-    container_name: financial-agent-ui
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    container_name: financial-agent-web
     restart: unless-stopped
     ports:
-      - "8501:8501"
-    environment:
-      <<: *common-env
-      API_HOST: api
-      API_PORT: "8000"
-      API_BASE_URL: http://api:8000
-    volumes:
-      - ./data:/app/data:ro
-    command: streamlit run streamlit_app.py --server.port=8501 --server.address=0.0.0.0
+      # Loopback only: the workbench is a local research tool, not a public site.
+      - "127.0.0.1:8080:8080"
     depends_on:
       api:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8501/_stcore/health"]
+      # 127.0.0.1, not localhost: inside the container localhost resolves to
+      # ::1 first and nginx binds IPv4 only, so "localhost" is refused and the
+      # container reports unhealthy while serving fine from the host.
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/ >/dev/null || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 40s
-    extra_hosts:
-      # Both of these run in their own compose projects and publish on the host.
-      # Joining their networks would make them required: an external network that
-      # does not exist stops `docker compose up` before any container starts.
-      - "financial-reports:host-gateway"
-      - "langfuse-web:host-gateway"
+      start_period: 15s
     networks:
       - financial-agent-network
 

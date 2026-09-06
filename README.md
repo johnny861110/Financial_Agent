@@ -2,7 +2,7 @@
 
 **Version:** 2.0  
 **Audience:** Professional fund managers, investment analysts, and research teams  
-**Stack:** Python, FastAPI, Streamlit, LangGraph/LangChain, OpenAI-compatible LLMs, Langfuse, HTTP/JSON financial data providers
+**Stack:** Python, FastAPI, React + TypeScript, LangGraph/LangChain, OpenAI-compatible LLMs, Langfuse, HTTP/JSON financial data providers
 
 ## Overview
 
@@ -12,7 +12,7 @@ The current default UI examples use **世芯-KY (`3661`) / `2025Q1`**.
 
 The project exposes:
 
-- A **Streamlit UI** for dashboards and agent chat.
+- A **React + TypeScript workbench** for dashboards and agent research.
 - A **FastAPI backend** for programmatic financial analysis.
 - A **LangGraph research agent** with `quick`, `auto`, and `research` modes.
 - A provider layer supporting local JSON and the FinancialReports HTTP API v1.
@@ -78,7 +78,7 @@ The following concepts exist in docs or tool stubs but are not complete producti
 
 The implemented system has three documented views:
 
-1. **System layer:** Streamlit and API clients enter through FastAPI; financial
+1. **System layer:** the workbench and API clients enter through FastAPI; financial
    routes call deterministic services while Agent routes call LangGraph.
 2. **Data layer:** services use the `DataLoader` facade over either local JSON
    or FinancialReports, with typed retry, cache, fallback, quality, freshness,
@@ -219,7 +219,9 @@ API_HOST=0.0.0.0
 API_PORT=8000
 API_BASE_URL=http://localhost:8000
 API_RELOAD=true
-API_CORS_ORIGINS=http://localhost:8501,http://127.0.0.1:8501
+# Only the Vite dev server needs an origin: the containerised workbench is
+# same-origin behind nginx.
+API_CORS_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
 
 # Logging
 LOG_LEVEL=INFO
@@ -235,15 +237,15 @@ Start FastAPI first:
 uv run uvicorn app.main:app --reload
 ```
 
-Then start Streamlit in another terminal:
+Then start the workbench in another terminal:
 
 ```bash
-API_BASE_URL=http://localhost:8000 uv run streamlit run streamlit_app.py
+cd frontend && npm install && npm run dev
 ```
 
 Open:
 
-- Streamlit: `http://localhost:8501`
+- Workbench (Vite dev server): `http://localhost:5173`
 - FastAPI: `http://localhost:8000`
 - Swagger: `http://localhost:8000/docs`
 - ReDoc: `http://localhost:8000/redoc`
@@ -279,7 +281,7 @@ Services:
 
 - API: `http://localhost:8000`
 - API docs: `http://localhost:8000/docs`
-- Streamlit UI: `http://localhost:8501`
+- Workbench: `http://localhost:8080`
 
 The UI service waits for the API healthcheck to pass before starting.
 
@@ -544,7 +546,7 @@ curl -X POST http://localhost:8000/api/data/3661/2025Q1/refresh
 curl http://localhost:8000/api/data/jobs/JOB_ID
 ```
 
-## Streamlit UI Defaults
+## Workbench Defaults
 
 The UI defaults are set to the current sample company:
 
@@ -609,7 +611,7 @@ uv run python -m compileall -q app ui
 Format code:
 
 ```bash
-uv run black --check app tests ui streamlit_app.py
+uv run black --check app tests
 ```
 
 Measure filing-text retrieval. Unlike the checks above this needs a running
@@ -699,7 +701,7 @@ Where:
 - Expose service functionality through `app/api/financials.py`.
 - Make Agent wrappers return `ToolResult` from `app/agents/tools.py`.
 - Update planning, evidence, and report behavior in `app/agents/workflow.py`.
-- Keep Streamlit behind `ui/api_client.py` rather than importing services.
+- Keep the workbench behind `frontend/src/api.ts` rather than reaching past the API.
 - Add provider failure, service, tool-contract, workflow, and API tests as relevant.
 
 ## License

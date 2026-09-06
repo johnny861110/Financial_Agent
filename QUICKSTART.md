@@ -31,12 +31,12 @@ uv run uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
 In another terminal, start the UI:
 
 ```bash
-API_BASE_URL=http://127.0.0.1:8000 uv run streamlit run streamlit_app.py
+cd frontend && npm install && npm run dev
 ```
 
 Open:
 
-- UI: `http://127.0.0.1:8501`
+- Workbench: `http://127.0.0.1:5173`
 - API: `http://127.0.0.1:8000`
 - Swagger: `http://127.0.0.1:8000/docs`
 - Readiness: `http://127.0.0.1:8000/health/ready`
@@ -102,7 +102,7 @@ curl http://127.0.0.1:8000/api/data/jobs/JOB_ID
 ## Tests and Quality
 
 ```bash
-uv run black --check app tests ui streamlit_app.py
+uv run black --check app tests
 uv run python -m compileall -q app tests ui
 uv run mypy app/data app/agents app/api app/services app/models/agent_models.py ui/api_client.py
 uv run pytest

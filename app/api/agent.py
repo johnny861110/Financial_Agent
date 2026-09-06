@@ -50,7 +50,5 @@ async def research_agent(query: AgentQuery) -> AgentResponse:
     except Exception as exc:
         # Without this the cause is discarded entirely: a failing research run
         # left a bare 500 in the response and nothing at all in the logs.
-        logger.exception(
-            "Research workflow failed for %s/%s", query.stock_code, query.period
-        )
+        logger.exception("Research workflow failed for %s/%s", query.stock_code, query.period)
         raise HTTPException(status_code=500, detail="Research workflow failed") from exc

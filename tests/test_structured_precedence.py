@@ -239,9 +239,7 @@ def test_composer_prompt_does_not_carry_evidence_twice():
     report = {
         "verdict": "中性",
         "investment_thesis": "thesis",
-        "findings": [
-            {"tool": "snapshot", "finding": "f", "confidence": 0.9, "evidence": evidence}
-        ],
+        "findings": [{"tool": "snapshot", "finding": "f", "confidence": 0.9, "evidence": evidence}],
         "supporting_evidence": evidence,
         "data_gaps": ["eps_diluted"],
     }
@@ -258,9 +256,9 @@ def test_composer_prompt_does_not_carry_evidence_twice():
 
     # The second copy is gone, and with it the overflow. The rows themselves
     # stay -- see the next test for why that is not negotiable.
-    assert len(json.dumps(view, ensure_ascii=False)) < len(
-        json.dumps(report, ensure_ascii=False)
-    ) / 2
+    assert (
+        len(json.dumps(view, ensure_ascii=False)) < len(json.dumps(report, ensure_ascii=False)) / 2
+    )
 
 
 def test_composer_prompt_keeps_every_evidence_row_of_a_normal_report():
@@ -284,9 +282,7 @@ def test_composer_prompt_keeps_every_evidence_row_of_a_normal_report():
             "confidence": 0.95,
             "period_start": "2025-01-01",
         }
-        for i, name in enumerate(
-            sorted(CANONICAL_INCOME | CANONICAL_BALANCE | CANONICAL_CASH_FLOW)
-        )
+        for i, name in enumerate(sorted(CANONICAL_INCOME | CANONICAL_BALANCE | CANONICAL_CASH_FLOW))
     ]
     view = _composer_report_view({"findings": [], "supporting_evidence": rows})
 

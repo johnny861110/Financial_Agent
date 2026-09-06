@@ -16,7 +16,7 @@ here — merged PRs carry that.
 | local | `/mnt/c/Users/johnn/GITHUB_REPO/Financial_Agent` | `/mnt/c/Users/johnn/GITHUB_REPO/FinancialReports` |
 | latest merged PR | #15 | #7 |
 | working branch | `feat/react-research-workbench` (21 ahead) | `fix/schedule-section-detection` (22 ahead) |
-| tests | 222 | 150 |
+| tests | 194 | 150 |
 | CI | gates + cross-repo smoke, green | gates on 3.10/3.11/3.12, green |
 
 **Nothing is pushed: the GitHub account is suspended.** Both repos carry
@@ -209,8 +209,8 @@ document's chunks and cascades to `chunk_embeddings`, so **always finish with
 .venv/bin/pytest -q
 FINANCIAL_DATA_PATH=/tmp/nonexistent .venv/bin/pytest -q   # must also pass
 .venv/bin/mypy app/data app/agents app/api app/services app/models/agent_models.py ui/api_client.py ui/presentation.py evaluation
-.venv/bin/black --check app tests ui evaluation streamlit_app.py
-.venv/bin/python -m compileall -q app tests ui evaluation
+.venv/bin/black --check app tests evaluation
+.venv/bin/python -m compileall -q app tests evaluation
 git -c core.whitespace=cr-at-eol diff --check
 npx gitnexus analyze --force
 
@@ -227,11 +227,8 @@ uv run pytest tests/
 ```
 
 ```bash
-# The React workbench is NOT started by the base compose file. Plain
-# `docker compose up -d` starts legacy Streamlit on 8501 instead, which reads
-# as "the workbench isn't built" when it is built and simply not started.
-docker compose -f docker-compose.yaml -f docker-compose.react.yaml up -d web
-# -> http://localhost:8080
+# Base compose now starts the API and the React workbench. Streamlit is gone.
+docker compose up -d          # -> workbench http://localhost:8080, API :8000
 ```
 
 CI runs these on every PR and is the authority. It installs with

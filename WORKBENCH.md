@@ -32,12 +32,13 @@ and `/health` to FastAPI. The browser does not call FinancialReports directly.
 ## Container preview
 
 ```bash
-docker compose -f docker-compose.yaml -f docker-compose.react.yaml up --build web
+docker compose up -d --build
 ```
 
-Open http://localhost:8080. This starts the React static web server and API;
-it does not start Streamlit or the companion FinancialReports project. The web
-port binds to loopback. API port exposure follows the base compose file.
+Open http://localhost:8080. This starts the API and the workbench -- both are
+in the base compose file now, so there is no overlay to remember. It does not
+start the companion FinancialReports project. The web port binds to loopback.
+API port exposure follows the base compose file.
 Nginx serves the SPA and proxies API requests on the same origin.
 
 This is a local preview configuration, not an authenticated multi-user
@@ -64,5 +65,6 @@ tests additionally need a running FinancialReports API and seeded filings.
 its citation metric checks presence/locatability, not claim correctness.
 
 Run the Python gates from `REACT_MIGRATION_PLAN.md` and the frontend's build,
-typecheck and test scripts before switching any existing deployment. The old
-Streamlit entrypoint remains available during local acceptance.
+typecheck and test scripts before switching any existing deployment. The
+Streamlit entrypoint it replaced has been removed; `git log -- ui streamlit_app.py`
+is the record if any of it is ever needed again.

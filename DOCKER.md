@@ -1,7 +1,8 @@
 # Docker Deployment
 
 The Compose stack builds one application image and runs it as two services:
-FastAPI (`api`) and Streamlit (`ui`). The UI waits for the API healthcheck and
+FastAPI (`api`) and the React workbench (`web`). The workbench waits for the
+API healthcheck and
 calls it through `API_BASE_URL=http://api:8000`.
 
 ## Requirements
@@ -68,7 +69,7 @@ docker compose logs -f api ui
 
 Endpoints:
 
-- Streamlit: `http://localhost:8501`
+- Workbench: `http://localhost:8080` (loopback only)
 - FastAPI: `http://localhost:8000`
 - Swagger: `http://localhost:8000/docs`
 - Liveness: `http://localhost:8000/health/live`
@@ -117,7 +118,8 @@ The Dockerfile uses two stages:
 | `builder` | Install `uv` and create `/app/.venv` from the lockfile |
 | Runtime | Copy the virtual environment and application, then run as `appuser` |
 
-The same image runs `uvicorn` for the API and `streamlit` for the UI. Runtime
+The API image runs `uvicorn`; the workbench is a separate nginx image built
+from `Dockerfile.frontend`. Runtime
 `curl` supports container healthchecks.
 
 ## Operations

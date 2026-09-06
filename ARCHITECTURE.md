@@ -9,7 +9,7 @@ orchestration. Planned capabilities are listed separately in `SPEC.md`.
 ```mermaid
 flowchart LR
     User[Analyst / API client]
-    UI[Streamlit UI]
+    UI[React workbench]
 
     subgraph FA[Financial Agent]
         API[FastAPI]
@@ -55,7 +55,7 @@ flowchart LR
 | Analysis services | Deterministic financial formulas and scores | Source acquisition or natural-language composition |
 | LangGraph Agent | Intent, research planning, tool execution, contradiction checks, report composition | Recalculating financial facts inside the LLM |
 | FastAPI | Stable HTTP boundary, status codes, thread-pool execution | Business formulas |
-| Streamlit | Analyst interaction and visualization | Direct data/service access |
+| React workbench | Analyst interaction and visualization | Direct data/service access |
 
 The UI always calls FastAPI. Financial Agent and FinancialReports communicate
 through a versioned HTTP contract; Financial Agent never connects to the
@@ -159,7 +159,7 @@ remains available for working without the producer running.
 
 ```mermaid
 flowchart TD
-    UI[Streamlit Agent page]
+    UI[Workbench Agent page]
     Client[API client]
     QueryRoute[POST /api/agent/query]
     ResearchRoute[POST /api/agent/research]

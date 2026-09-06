@@ -23,7 +23,7 @@ committee. Source ingestion belongs to the separate FinancialReports service.
 
 | Area | Current capability |
 | --- | --- |
-| Delivery | FastAPI API and Streamlit analyst UI |
+| Delivery | FastAPI API and React + TypeScript analyst workbench |
 | Data | Local JSON provider and FinancialReports HTTP provider |
 | Canonical context | Fact/unit/availability/validation accessors; Snapshot and Trend migrated |
 | Resilience | Retry, controlled fallback, process-local TTL cache, stale mode |
@@ -45,7 +45,7 @@ The three implemented architecture views are maintained in
    different local record.
 4. Low-quality, stale, and assumption-based findings remain visible and reduce
    confidence.
-5. Streamlit uses the public API boundary, keeping UI and backend behavior
+5. The workbench uses the public API boundary, keeping UI and backend behavior
    consistent.
 6. The FinancialReports integration is HTTP-based and versioned; no database
    file is shared between projects.
@@ -86,7 +86,7 @@ between narrow and broad behavior from the request.
 
 ## Verification Status
 
-The current consumer passes Black, Python compilation, mypy, and 222 pytest
+The current consumer passes Black, Python compilation, mypy, and 194 pytest
 tests. Coverage includes absence states, unit mismatch, validation filtering,
 producer metrics, missing-safe trend behavior, provider resilience, Agent
 workflow, services, and API behavior.

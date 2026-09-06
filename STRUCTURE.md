@@ -31,7 +31,6 @@ Financial_Agent/
 |       |-- factory.py          Shared service registry and dependency injection
 |       `-- *_service.py        Deterministic analysis implementations
 |-- ui/
-|   |-- api_client.py           Streamlit-to-FastAPI client
 |   `-- pages/                  Analyst dashboards and Agent research UI
 |-- frontend/
 |   |-- src/api.generated.ts    Types generated from the committed OpenAPI schema
@@ -47,13 +46,12 @@ Financial_Agent/
 |-- tests/
 |   |-- fixtures/               Versioned provider contract fixtures
 |   `-- test_*.py               Unit, API, provider, workflow, and precedence tests
-|-- streamlit_app.py            Streamlit entry point
 |-- convert_financial_report.py Legacy JSON conversion utility
 |-- ARCHITECTURE.md             Implemented architecture and boundaries
 |-- MODIFICATION_PLAN.md        Completed integration plan and acceptance checks
 |-- SPEC.md                     Current specification and future roadmap
 |-- WORKBENCH.md                React workbench setup and API boundary
-|-- Dockerfile                  API and Streamlit image
+|-- Dockerfile                  API image
 |-- Dockerfile.frontend         Workbench build and nginx runtime
 |-- docker-compose.yaml         Default stack
 |-- docker-compose.dev.yaml     Local development overrides

@@ -8,14 +8,18 @@
 # merged by compose on its own and is gitignored, so it stays local to you:
 #     cp docker-compose.dev.yaml docker-compose.override.yaml
 #
-# The source mounts mean an edit to app/ or ui/ takes effect without a rebuild.
-# A change to pyproject.toml or uv.lock still needs `docker compose build`,
+# The source mount means an edit to app/ takes effect without a rebuild. A
+# change to pyproject.toml or uv.lock still needs `docker compose build`,
 # because dependencies live in the image's virtualenv.
+#
+# There is no override for `web`: the workbench is a static build served by
+# nginx, so live-reloading it means running Vite on the host instead --
+#     cd frontend && npm run dev     # http://localhost:5173
+# which is why 5173 is the only origin left in API_CORS_ORIGINS.
 services:
   api:
     volumes:
       - ./app:/app/app:ro
-      - ./ui:/app/ui:ro
       - ./data:/app/data:ro
       - ./logs:/app/logs
     environment:
@@ -25,14 +29,4 @@ services:
       WATCHFILES_FORCE_POLLING: "true"
     command: >
       uvicorn app.main:app --host 0.0.0.0 --port 8000
-      --reload --reload-dir /app/app --reload-dir /app/ui
-
-  ui:
-    volumes:
-      - ./app:/app/app:ro
-      - ./ui:/app/ui:ro
-      - ./streamlit_app.py:/app/streamlit_app.py:ro
-      - ./data:/app/data:ro
-    command: >
-      streamlit run streamlit_app.py --server.port=8501 --server.address=0.0.0.0
-      --server.fileWatcherType=poll --server.runOnSave=true
+      --reload --reload-dir /app/app
