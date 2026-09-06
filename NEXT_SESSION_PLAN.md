@@ -1,6 +1,6 @@
 # Next Session Handoff
 
-**Last updated:** 2026-08-30
+**Last updated:** 2026-09-06
 
 Read this first. It states what exists, what to do next, and the traps that
 have already cost time. It is deliberately not a history of how things got
@@ -15,8 +15,14 @@ here — merged PRs carry that.
 | repo | `johnny861110/Financial_Agent` | `johnny861110/FinancialReports` |
 | local | `/mnt/c/Users/johnn/GITHUB_REPO/Financial_Agent` | `/mnt/c/Users/johnn/GITHUB_REPO/FinancialReports` |
 | latest merged PR | #15 | #7 |
-| tests | 138 | 114 |
+| working branch | `feat/react-research-workbench` (13 ahead) | `fix/schedule-section-detection` (16 ahead) |
+| tests | 211 | 144 |
 | CI | gates + cross-repo smoke, green | gates on 3.10/3.11/3.12, green |
+
+**Nothing is pushed: the GitHub account is suspended.** Both repos carry
+substantial unpushed work on the branches above, and each repo's own
+documentation is the durable record until that changes —
+`FinancialReports/docs/CHANGE-RECORD-2026-09-06.md` in particular.
 
 **Unpushed local commits exist in both repos.** The corpus-legibility fix (the
 item that used to be §3.1) landed as two commits on `FinancialReports/main`,
@@ -108,13 +114,26 @@ the answer against the report and the retrieved passages. **This is the measure
 that would catch the agent asserting something no evidence supports** — the
 single most valuable thing still missing.
 
-### 3.2 Section labels are unreliable
+### 3.2 Section labels — fixed upstream 2026-09-06, and the conclusion changed
 
-Producer section detection puts ~65% of a filing's chunks into one section
-type, so an auditor's report can be labelled `income_statement`. Section
-filtering is therefore **off by default** in `app/agents/retrieval.py`
-(`use_sections=True` opts in). Fixing `split_sections` would make the filter
-usable and improve `sections=` for all consumers.
+The guess recorded here was that detection ran sections to the document end.
+Measurement refuted it: detection is page-granular, and `風險管理` was matching
+mid-sentence prose, so `risk` swallowed 26.9% of the corpus across 418 separate
+sections. The producer now requires headings to look like headings and segments
+notes by their numbering; `risk` fell to 1.4% and 885 distinct note titles
+appeared.
+
+Section filtering nonetheless **stays off by default**, for a different reason
+than before. Everything in the notes now resolves to the single type `note`
+(63.3% of chunks), so filtering by type is a weak instrument regardless of
+label quality. `section_title` is the usable topic signal — 885 titles against
+a dozen types. If a future consumer wants topical narrowing, build it on titles.
+
+Two consumer-side consequences were fixed the same day: the `NARRATIVE_SECTIONS`
+mapping still named `notes`, which is down to 0.8%, and the workflow was
+discarding successfully retrieved passages for any question outside a
+hand-written topic allowlist — 6 of 8 narrative questions lost their evidence
+before the model saw it.
 
 ### 3.3 Phase F production controls
 
@@ -127,10 +146,15 @@ shared cache. The service should not be called production-ready without them.
   `FilingIdentityRecord.industry` exists in the model but nothing populates or
   reads it, and the JSON provider builds no identity at all. Needs a real
   producer for sector data first, or it is a gate with no input.
-- **`get_context` raises on a producer 409** while `load_record` returns a
-  typed state. That is consistent with the guardrail against silently
-  absorbing producer contract errors, so it was left alone — but callers must
-  know it.
+- ~~**`get_context` raises on a producer 409**~~ — resolved 2026-09-06, and the
+  reasoning above turned out to be wrong. Leaving it to raise meant the raw
+  httpx error reached the user's data-gap list carrying the internal service
+  URL, the percent-encoded question and a link to MDN's 409 page, presented as
+  though it were a finding about the filing. The producer now distinguishes
+  `filing_has_no_source_documents` (permanent, retryable false) from a real
+  outage, and both paths treat it as absent data. End-to-end testing found
+  this; unit tests on either side could not, because each side was correct
+  about its own half.
 - **Un-spacing letter-spaced CJK table headers.** 11.8% of chunks read
   `總 帳 面 金 額` for `總帳面金額`, because the PDF spaces characters out to
   justify a column header. Tempting to fix by joining CJK characters whose gap
@@ -161,7 +185,9 @@ shared cache. The service should not be called production-ready without them.
 ```bash
 cd /mnt/c/Users/johnn/GITHUB_REPO/FinancialReports
 docker compose up -d db          # pgvector/pgvector:pg16
-export FR_DATABASE_URL="postgresql+psycopg://financial:financial@localhost:5432/financial"
+# Port 5433 on this machine: FinancialReports/.env sets POSTGRES_PORT=5433 to
+# avoid colliding with the local Postgres already on 5432.
+export FR_DATABASE_URL="postgresql+psycopg://financial:financial@localhost:5433/financial"
 uv run uvicorn src.api.app:create_app --factory --host 127.0.0.1 --port 8010
 ```
 

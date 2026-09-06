@@ -82,15 +82,17 @@ between narrow and broad behavior from the request.
 
 ## Verification Status
 
-The current consumer passes Black, Python compilation, mypy, and 44 pytest
+The current consumer passes Black, Python compilation, mypy, and 211 pytest
 tests. Coverage includes absence states, unit mismatch, validation filtering,
 producer metrics, missing-safe trend behavior, provider resilience, Agent
 workflow, services, and API behavior.
 
 ## Next Engineering Priorities
 
-1. Introduce canonical financial context and schema-aware tool gates.
-2. Add question-directed filing text retrieval and citations.
+1. ~~Introduce canonical financial context and schema-aware tool gates.~~ Done.
+2. ~~Add question-directed filing text retrieval and citations.~~ Done, and
+   corrected 2026-09-06: numbers come from the 34 canonical fields, retrieval
+   is for narrative only. See NEXT_SESSION_PLAN.md §3.2.
 3. Add authentication, request limits, durable job state, and shared cache.
 4. Replace proxy/default inputs with audited cash-flow and market data.
 5. Add evaluation datasets for verdict stability, citation completeness, and
