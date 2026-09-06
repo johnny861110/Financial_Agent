@@ -221,6 +221,11 @@ uv run mypy src/ --ignore-missing-imports
 uv run pytest tests/
 ```
 
+```bash
+# Financial_Agent, against the built image rather than the source tree
+./scripts/container_smoke.sh
+```
+
 CI runs these on every PR and is the authority. It installs with
 `uv sync --frozen`, so a local `.venv` that has drifted from `uv.lock` can
 disagree with it — `uv lock --check` has its own CI job for that.

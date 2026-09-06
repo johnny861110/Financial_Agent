@@ -579,6 +579,21 @@ Note that `.env` sets `FINANCIAL_REPORTS_BASE_URL` to the compose hostname
 `http://financial-reports:8010`, which resolves only inside the compose
 network; on the host the tests fall back to `http://127.0.0.1:8010`.
 
+Smoke-test the built image rather than the source tree:
+
+```bash
+./scripts/container_smoke.sh
+```
+
+Every pytest run imports from the working copy, so a dependency missing from
+the *image* is invisible to all of them, and nothing in the suite reads compose
+at all -- which is how a compose default of `LLM_TEMPERATURE=1.0` survived a
+green suite. This asserts against a running container: the environment it
+actually received, the imports it can actually resolve, and one numeric and one
+narrative query answered end to end. The numeric check reads the expected
+figure from the API rather than hardcoding it, so it does not rot when the
+corpus is re-ingested.
+
 Run type checks:
 
 ```bash
