@@ -75,6 +75,22 @@ claim correctness. Server-owned research jobs, per-user authorization, shared
 cache/rate limits and evidence-based claim evaluation require their own tested
 implementation before a production-readiness claim.
 
+## Where each UI runs now
+
+The baseline below is the *before* state, kept as a record; it is not a claim
+about today. Current state:
+
+| UI | Port | Started by | Status |
+| --- | --- | --- | --- |
+| React workbench | 8080 (loopback) | `docker compose -f docker-compose.yaml -f docker-compose.react.yaml up -d web` | The deliverable of this migration |
+| Streamlit | 8501 | `docker compose up -d` (the base file's `ui` service) | Legacy, retained and still functional |
+
+The base compose file starts Streamlit and **not** the workbench, so a plain
+`docker compose up -d` gives you the UI this migration replaces. That is easy
+to mistake for "the workbench isn't built yet" -- it is built, it just needs
+the overlay. Whether the base file should keep starting Streamlit by default
+is an open decision, not an oversight.
+
 ## Baseline evidence
 
 191 pytest tests passed and 5 producer smoke tests skipped. Mypy passed its

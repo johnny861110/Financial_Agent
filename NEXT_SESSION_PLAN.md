@@ -226,6 +226,14 @@ uv run pytest tests/
 ./scripts/container_smoke.sh
 ```
 
+```bash
+# The React workbench is NOT started by the base compose file. Plain
+# `docker compose up -d` starts legacy Streamlit on 8501 instead, which reads
+# as "the workbench isn't built" when it is built and simply not started.
+docker compose -f docker-compose.yaml -f docker-compose.react.yaml up -d web
+# -> http://localhost:8080
+```
+
 CI runs these on every PR and is the authority. It installs with
 `uv sync --frozen`, so a local `.venv` that has drifted from `uv.lock` can
 disagree with it — `uv lock --check` has its own CI job for that.
