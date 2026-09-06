@@ -15,8 +15,8 @@ here — merged PRs carry that.
 | repo | `johnny861110/Financial_Agent` | `johnny861110/FinancialReports` |
 | local | `/mnt/c/Users/johnn/GITHUB_REPO/Financial_Agent` | `/mnt/c/Users/johnn/GITHUB_REPO/FinancialReports` |
 | latest merged PR | #15 | #7 |
-| working branch | `feat/react-research-workbench` (19 ahead) | `fix/schedule-section-detection` (20 ahead) |
-| tests | 217 | 148 |
+| working branch | `feat/react-research-workbench` (19 ahead) | `fix/schedule-section-detection` (21 ahead) |
+| tests | 217 | 150 |
 | CI | gates + cross-repo smoke, green | gates on 3.10/3.11/3.12, green |
 
 **Nothing is pushed: the GitHub account is suspended.** Both repos carry
@@ -236,6 +236,17 @@ python -m evaluation      # exits non-zero if any measure is not exact
 ## 5. Traps that have already cost time
 
 Every one of these was found by running something, not by reading code.
+
+**`uv run pytest` in FinancialReports without `FR_DATABASE_URL` reports
+"94 passed, 56 skipped" and exits 0.** 37% of the suite -- every storage,
+contract and pipeline-chain test -- silently does not run, and the exit code
+says nothing is wrong. With the database configured it is 150 passed. Always
+run it as documented above, and read the skip count, not just the exit code:
+
+```bash
+FR_DATABASE_URL="postgresql+psycopg://financial:financial@127.0.0.1:5433/financial" \
+  uv run pytest tests/
+```
 
 **Two config files disagree with the code about sampling temperature.**
 `docker-compose.yaml` defaulted `LLM_TEMPERATURE` to 1.0 against `config.py`
