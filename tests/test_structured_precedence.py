@@ -230,7 +230,7 @@ def test_composer_prompt_does_not_carry_evidence_twice():
     context, so the request failed in the composer *after* every tool had
     already succeeded, and the caller got a bare 500.
     """
-    from app.agents.workflow import MAX_PROMPT_EVIDENCE, _composer_report_view
+    from app.agents.workflow import _composer_report_view
 
     evidence = [
         {"field": f"field_{i}", "value": i, "unit": "TWD_thousands", "confidence": 0.95}
@@ -252,16 +252,77 @@ def test_composer_prompt_does_not_carry_evidence_twice():
     assert view["findings"][0]["evidence_count"] == 40
     assert view["findings"][0]["finding"] == "f"
 
-    assert len(view["supporting_evidence"]) == MAX_PROMPT_EVIDENCE
-    assert view["supporting_evidence_omitted"] == 40 - MAX_PROMPT_EVIDENCE
-
     # The narrative fields the answer is actually built from survive intact.
     assert view["verdict"] == "中性"
     assert view["data_gaps"] == ["eps_diluted"]
 
+    # The second copy is gone, and with it the overflow. The rows themselves
+    # stay -- see the next test for why that is not negotiable.
     assert len(json.dumps(view, ensure_ascii=False)) < len(
         json.dumps(report, ensure_ascii=False)
-    ) / 4
+    ) / 2
+
+
+def test_composer_prompt_keeps_every_evidence_row_of_a_normal_report():
+    """Deduplicating evidence must not become sampling it.
+
+    A finding's own text is a one-line summary and no tool's structured output
+    is carried anywhere else in the report, so these rows are the only place
+    the figures exist. Capping them at a sample made the agent report
+    "營業收入資料缺失" for a period whose revenue the producer had returned --
+    an answer-shaped failure, which is worse than the 500 it replaced.
+    """
+    from app.agents.workflow import _composer_report_view
+
+    rows = [
+        {
+            "field": name,
+            "value": 1000 + i,
+            "unit": "TWD_thousands",
+            "statement": "income_statement",
+            "source_type": "finmind",
+            "confidence": 0.95,
+            "period_start": "2025-01-01",
+        }
+        for i, name in enumerate(
+            sorted(CANONICAL_INCOME | CANONICAL_BALANCE | CANONICAL_CASH_FLOW)
+        )
+    ]
+    view = _composer_report_view({"findings": [], "supporting_evidence": rows})
+
+    assert len(view["supporting_evidence"]) == len(rows)
+    assert "supporting_evidence_omitted" not in view
+
+    kept = {row["field"] for row in view["supporting_evidence"]}
+    assert "net_revenue" in kept and "operating_income" in kept
+
+    # Units survive the projection: these values are TWD thousands, and a
+    # figure quoted without the unit is wrong by three orders of magnitude.
+    assert all(row["unit"] == "TWD_thousands" for row in view["supporting_evidence"])
+
+
+def test_composer_evidence_budget_still_bounds_a_pathological_report():
+    """The budget is a safety valve, and it must report what it dropped."""
+    from app.agents.workflow import MAX_PROMPT_EVIDENCE_CHARS, _composer_report_view
+
+    rows = [
+        {
+            "field": f"field_{i}",
+            "value": i,
+            "unit": "TWD_thousands",
+            "statement": "income_statement",
+            "source_type": "finmind",
+        }
+        for i in range(4000)
+    ]
+    view = _composer_report_view({"findings": [], "supporting_evidence": rows})
+
+    assert len(view["supporting_evidence"]) < len(rows)
+    assert view["supporting_evidence_omitted"] == len(rows) - len(view["supporting_evidence"])
+    assert (
+        len(json.dumps(view["supporting_evidence"], ensure_ascii=False))
+        <= MAX_PROMPT_EVIDENCE_CHARS
+    )
 
 
 def test_agent_routes_log_the_cause_instead_of_returning_it():
@@ -280,3 +341,43 @@ def test_agent_routes_log_the_cause_instead_of_returning_it():
     assert "str(e)" not in source
     assert 'detail="Agent query failed"' in source
     assert 'detail="Research workflow failed"' in source
+
+
+def test_deployment_does_not_raise_the_composer_temperature():
+    """The composer restates exact figures; sampling temperature is not free.
+
+    `docker-compose.yaml` defaulted `LLM_TEMPERATURE` to 1.0 while both
+    `config.py` and `.env.example` said 0.0, so every containerised deployment
+    ran the answer composer at full sampling temperature. A run under it
+    reported revenue as 10,485,855 against a filed 10,484,855 -- one flipped
+    digit, in the one output that must be exact.
+    """
+    import pathlib
+    import re
+
+    from app.core.config import Settings
+
+    assert Settings.model_fields["llm_temperature"].default == 0.0
+
+    root = pathlib.Path(__file__).resolve().parent.parent
+    for compose in root.glob("docker-compose*.yaml"):
+        for value in re.findall(
+            r"LLM_TEMPERATURE:\s*\$\{LLM_TEMPERATURE:-([0-9.]+)\}", compose.read_text()
+        ):
+            assert float(value) == 0.0, f"{compose.name} defaults the composer to {value}"
+
+
+def test_answer_prompt_forbids_calling_a_present_figure_missing():
+    """The guard against the failure that replaced the 500.
+
+    With the evidence rows trimmed to a sample the agent answered
+    "營業收入…尚未提供" for a period whose revenue the producer had returned,
+    and then listed that revenue further down the same answer.
+    """
+    import inspect
+
+    from app.agents.workflow import FinancialAgent
+
+    source = inspect.getsource(FinancialAgent)
+    assert "Never say a figure is missing or unavailable while it is present" in source
+    assert "Answer the user's question first and directly." in source

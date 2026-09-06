@@ -1,7 +1,11 @@
 x-common-env: &common-env
   OPENAI_API_KEY: ${OPENAI_API_KEY}
   LLM_MODEL: ${LLM_MODEL:-gpt-3.5-turbo}
-  LLM_TEMPERATURE: ${LLM_TEMPERATURE:-1.0}
+  # 0.0, matching config.py and .env.example. This default was 1.0, so every
+  # containerised deployment composed financial figures at full sampling
+  # temperature while the code and the documented configuration both said
+  # deterministic -- and the composer's job is to restate exact numbers.
+  LLM_TEMPERATURE: ${LLM_TEMPERATURE:-0.0}
   LANGFUSE_ENABLED: ${LANGFUSE_ENABLED:-false}
   LANGFUSE_TRACING_ENABLED: ${LANGFUSE_ENABLED:-false}
   LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-}

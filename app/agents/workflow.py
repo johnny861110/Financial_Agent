@@ -20,11 +20,17 @@ from app.models.agent_models import AgentQuery, AgentResponse, IntentClassificat
 
 logger = logging.getLogger(__name__)
 
-# How many evidence rows the answer prompt carries. Evidence is provenance for
-# values the deterministic layer already computed, and the prompt forbids the
-# model from re-deriving numbers out of it, so a bounded sample is enough to
-# let the answer say what backs a finding.
-MAX_PROMPT_EVIDENCE = 16
+# Character budget for the evidence block in the answer prompt. This is a
+# safety valve for an unusually wide run, not a working limit: a normal
+# research report's evidence projects to roughly a third of it, and dropping
+# rows costs the answer real figures (see below), so the budget is set well
+# above what a report actually needs.
+MAX_PROMPT_EVIDENCE_CHARS = 12000
+
+# The evidence keys the answer needs to state a figure correctly. `unit` is not
+# optional here: values are in TWD thousands, and a figure quoted without it is
+# wrong by three orders of magnitude.
+_EVIDENCE_KEYS = ("field", "value", "unit", "statement", "source_type")
 
 
 def _composer_report_view(report: dict) -> dict:
@@ -37,8 +43,13 @@ def _composer_report_view(report: dict) -> dict:
     rejected the request and the entire research run returned 500 from the
     composer, after every tool had already succeeded.
 
-    Evidence rows are also the part the model needs least: they are field,
-    value, unit and source provenance for numbers the report already states.
+    So the duplication goes and the rows stay. The rows are *not* mere
+    provenance, which is the trap here: a finding's own text is a one-line
+    summary, and no tool's structured output is carried anywhere else in the
+    report, so the evidence rows are the only place the figures exist. Trimming
+    them to a sample made the agent answer "營業收入資料缺失" for a period
+    whose revenue the producer had returned perfectly well -- a worse failure
+    than the 500, because it looks like an answer.
     """
     findings = []
     for finding in report.get("findings", []):
@@ -46,21 +57,23 @@ def _composer_report_view(report: dict) -> dict:
         trimmed["evidence_count"] = len(finding.get("evidence") or [])
         findings.append(trimmed)
 
-    evidence = [
-        {
-            key: row.get(key)
-            for key in ("field", "value", "unit", "statement", "source_type")
-            if row.get(key) is not None
-        }
-        for row in report.get("supporting_evidence", [])[:MAX_PROMPT_EVIDENCE]
-    ]
+    evidence: list[dict] = []
+    budget = MAX_PROMPT_EVIDENCE_CHARS
+    rows = report.get("supporting_evidence") or []
+    for row in rows:
+        compact = {k: row.get(k) for k in _EVIDENCE_KEYS if row.get(k) is not None}
+        # +2 for the ", " the list serialisation adds around each row, so the
+        # budget bounds the serialised block and not just the rows in it.
+        budget -= len(json.dumps(compact, ensure_ascii=False)) + 2
+        if budget < 0:
+            break
+        evidence.append(compact)
 
     view = {k: v for k, v in report.items() if k not in ("findings", "supporting_evidence")}
     view["findings"] = findings
     view["supporting_evidence"] = evidence
-    total_evidence = len(report.get("supporting_evidence") or [])
-    if total_evidence > len(evidence):
-        view["supporting_evidence_omitted"] = total_evidence - len(evidence)
+    if len(rows) > len(evidence):
+        view["supporting_evidence_omitted"] = len(rows) - len(evidence)
     return view
 
 
@@ -884,6 +897,17 @@ Period: {state.get('period')}
 Research report: {json.dumps(_composer_report_view(report), ensure_ascii=False)}{passages}
 
 Requirements:
+- Answer the user's question first and directly.
+- `supporting_evidence` holds the canonical figures for this company and
+  period. A field listed there is available: read its value and answer with it.
+  Never say a figure is missing or unavailable while it is present there --
+  only `data_gaps` names what is genuinely absent.
+- Report each figure under the field name it is filed as. Do not rename a field
+  into a nearby accounting term: `current_liabilities` is not 應付帳款 and
+  `current_assets` is not 應收帳款, and mislabelling one is indistinguishable
+  from reporting a wrong number.
+- Cite only the figures the question calls for. Do not list the whole evidence
+  block.
 - State the verdict and investment thesis.
 - Separate evidence, risks, contradictions, and data gaps.
 - Do not add prices, forecasts, recommendations, or facts absent from the report.
