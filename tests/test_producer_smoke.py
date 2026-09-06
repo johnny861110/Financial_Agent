@@ -5,9 +5,21 @@ handles the shape it *expects*. This proves the producer actually serves that
 shape: it talks to a real FinancialReports process over HTTP, so a contract
 change on the producer side fails here rather than in production.
 
-Skipped unless FINANCIAL_REPORTS_BASE_URL points at a running producer. In CI
-that variable is set by the cross-repo job, and the skip is treated as a
-failure there -- a smoke test that silently skips is worse than no smoke test.
+An unreachable producer is an **error**, not a skip. This file said as much
+from the start -- "a smoke test that silently skips is worse than no smoke
+test" -- but enforced it only in CI, and locally is where the seam actually
+gets worked on. For a whole day this file reported "5 skipped" beside a green
+217 while it was the only test covering the consumer/producer boundary, and the
+producer was running the entire time.
+
+The trap is that it is easy to hit while doing everything right: `.env` sets
+FINANCIAL_REPORTS_BASE_URL to the compose hostname `http://financial-reports:8010`,
+which resolves inside a container and nowhere else, and pytest does not read
+`.env` anyway. So the variable is simply unset on the host and the tests
+vanish.
+
+Set FA_ALLOW_SMOKE_SKIP=1 to opt into running without a producer. That makes a
+partial run a deliberate act rather than the default.
 """
 
 from __future__ import annotations
@@ -18,17 +30,51 @@ import pytest
 
 from app.data.providers import FinancialReportsProvider
 
-BASE_URL = os.getenv("FINANCIAL_REPORTS_BASE_URL")
+# The documented local producer port (DOCKER.md, NEXT_SESSION_PLAN §4). The
+# compose hostname in .env is deliberately not the fallback: it resolves only
+# inside the compose network, so defaulting to it would reintroduce the same
+# silent absence one layer down.
+DEFAULT_BASE_URL = "http://127.0.0.1:8010"
+BASE_URL = os.getenv("FINANCIAL_REPORTS_BASE_URL") or DEFAULT_BASE_URL
+
+ALLOW_SKIP = bool(os.getenv("FA_ALLOW_SMOKE_SKIP"))
 
 # CI seeds a filing before running this, so "no data" there means the seed
 # failed. A skip would look identical to a pass, which is the failure mode this
 # whole job exists to catch, so it becomes an error instead.
 REQUIRE_DATA = bool(os.getenv("SMOKE_REQUIRE_DATA"))
 
-pytestmark = pytest.mark.skipif(
-    not BASE_URL,
-    reason="FINANCIAL_REPORTS_BASE_URL is not set; no producer to smoke test against",
-)
+UNREACHABLE = f"""\
+No FinancialReports producer is reachable at {BASE_URL}.
+
+These {5} tests are the only coverage of the consumer/producer boundary --
+every other test in this suite mocks the producer -- so skipping them silently
+would report a green suite over the one seam neither repo tests.
+
+Start it:      docker start financialreports-db-1 financialreports-api-1
+Point at it:   FINANCIAL_REPORTS_BASE_URL=http://127.0.0.1:8010 uv run pytest
+Run without:   FA_ALLOW_SMOKE_SKIP=1 uv run pytest
+
+Note the port: the producer publishes 8010, and its database is on 5433 rather
+than 5432 because langfuse holds 5432 on this machine.
+"""
+
+
+def _producer_is_reachable() -> bool:
+    import httpx
+
+    try:
+        httpx.get(f"{BASE_URL}/health", timeout=3.0)
+    except httpx.HTTPError:
+        return False
+    return True
+
+
+if not _producer_is_reachable():
+    if ALLOW_SKIP:
+        pytestmark = pytest.mark.skip(reason=f"no producer at {BASE_URL}; FA_ALLOW_SMOKE_SKIP set")
+    else:
+        pytest.fail(UNREACHABLE, pytrace=False)
 
 
 def _no_data(reason: str) -> None:

@@ -564,6 +564,21 @@ Run tests:
 uv run pytest
 ```
 
+Five of these are a cross-repository smoke test against a running
+FinancialReports process -- the only coverage of the consumer/producer
+boundary, since every other test mocks the producer. **An unreachable producer
+is an error, not a skip**, so a green suite means that seam was actually
+exercised:
+
+```bash
+docker start financialreports-db-1 financialreports-api-1   # producer on 8010
+FA_ALLOW_SMOKE_SKIP=1 uv run pytest                         # or opt out
+```
+
+Note that `.env` sets `FINANCIAL_REPORTS_BASE_URL` to the compose hostname
+`http://financial-reports:8010`, which resolves only inside the compose
+network; on the host the tests fall back to `http://127.0.0.1:8010`.
+
 Run type checks:
 
 ```bash
