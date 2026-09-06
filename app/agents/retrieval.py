@@ -23,19 +23,29 @@ logger = logging.getLogger(__name__)
 # which the consumer would then report as "no filing text matched", a data gap
 # that is not real.
 #
-# The cause is upstream: the producer's section detection is coarse, putting
-# about 65% of a filing's chunks into a single section type, so a chunk whose
-# text is plainly an auditor's report can be labelled income_statement. Vector
-# search finds that text regardless of the label; a section filter excludes it.
+# The cause was upstream, and it has since been diagnosed more precisely than
+# the original note here guessed. Detection was never running sections to the
+# document end: it is page-granular, and `風險管理` matched mid-sentence prose,
+# so risk swallowed 26.9% of the corpus across 418 separate sections. The
+# producer now requires headings to look like headings and segments notes by
+# their numbering, which collapsed risk to 1.4%.
 #
-# Kept because the mapping is still the right one once labels are trustworthy,
-# and `sections` remains a supported producer parameter. Pass
-# `use_sections=True` to opt back in.
+# What that leaves is a different shape of problem. `note` (singular, one per
+# numbered note) now carries 63.3% of chunks while the legacy `notes` heading
+# match is down to 0.8%, so a mapping naming only `notes` points at a nearly
+# dead label. `risk` is deliberately not widened to include `note`: its
+# remaining 309 chunks are genuine now, and adding `note` would select two
+# thirds of the corpus, which is not a filter.
+#
+# So filtering by type is a weak instrument for anything living in the notes,
+# because it all resolves to `note`. `section_title` is the usable topic signal
+# -- 885 distinct titles against a dozen coarse types -- which is why this
+# mapping stays opt-in via `use_sections=True`.
 NARRATIVE_SECTIONS: dict[str, tuple[str, ...]] = {
-    "accounting_policy": ("accounting_policy", "notes"),
+    "accounting_policy": ("accounting_policy", "note", "notes"),
     "risk": ("risk",),
     "auditor": ("auditor",),
-    "notes": ("notes",),
+    "notes": ("note", "notes"),
 }
 
 # Deciding whether a question needs filing text.
@@ -160,10 +170,31 @@ class RetrievedContext:
     sections: list[str] = field(default_factory=list)
     chunks: list[dict[str, Any]] = field(default_factory=list)
     error: str | None = None
+    # How the producer actually ranked these chunks: {mode, state, detail}.
+    # Chunks come back carrying section titles, pages and ids whether or not
+    # the question influenced the ranking, so without this a fallback is
+    # indistinguishable from a search result -- which is exactly how a
+    # question-blind retrieval path went unnoticed for months.
+    retrieval: dict[str, Any] = field(default_factory=dict)
+    # Identifies the filing's chunk corpus at the time these citations were
+    # made. A re-extract deletes and re-inserts every chunk, and the new id
+    # range overlaps the old, so a stored chunk_id resolves to *different* text
+    # rather than 404. Persist this next to any cached citation and compare it
+    # before treating that citation as still pointing at what it quoted.
+    corpus_version: str | None = None
 
     @property
     def used(self) -> bool:
         return bool(self.chunks)
+
+    @property
+    def degraded_detail(self) -> str | None:
+        """Why these chunks were not ranked by the question, if they weren't."""
+        state = self.retrieval.get("state")
+        if not state or state == "present":
+            return None
+        detail = self.retrieval.get("detail") or f"retrieval state: {state}"
+        return str(detail)
 
     def as_state(self) -> dict[str, Any]:
         return {
@@ -173,6 +204,8 @@ class RetrievedContext:
             "chunks": self.chunks,
             "chunk_count": len(self.chunks),
             "error": self.error,
+            "retrieval": self.retrieval,
+            "corpus_version": self.corpus_version,
         }
 
 
@@ -278,6 +311,14 @@ def retrieve(
     if not payload:
         context.error = "No filing context is available for this period"
         return context
+
+    reported = payload.get("retrieval")
+    if isinstance(reported, dict):
+        context.retrieval = reported
+
+    version = payload.get("corpus_version")
+    if isinstance(version, str):
+        context.corpus_version = version
 
     chunks = payload.get("evidence_chunks") or []
     if not isinstance(chunks, list):

@@ -305,7 +305,13 @@ class FinancialAgent:
             state["period"],
             state.get("query", ""),
         )
-        state["filing_text"] = context.as_state() if (context.topics or context.error) else {}
+        # Keep what retrieval actually produced. Gating on `topics` here put the
+        # narrative-topic allowlist back in the path after retrieval.py had
+        # deliberately removed it: a question outside the hand-written keyword
+        # families -- subsidiaries, capital management, valuation technique --
+        # retrieved good passages and had them thrown away, which is the silent
+        # under-retrieval that NUMERIC_TERMS was inverted to prevent.
+        state["filing_text"] = context.as_state() if (context.used or context.error) else {}
         return state
 
     def _research_planner_node(self, state: AgentState) -> AgentState:
@@ -556,6 +562,12 @@ class FinancialAgent:
             )
         if filing_text.get("error"):
             gaps.append(f"filing_text: {filing_text['error']}")
+        # Chunks that were not ranked by the question still arrive looking like
+        # search results. Say so, or the citations read as if they answered it.
+        reported = filing_text.get("retrieval") or {}
+        if reported.get("state") and reported["state"] != "present" and filing_text.get("chunks"):
+            detail = reported.get("detail") or f"retrieval state: {reported['state']}"
+            gaps.append(f"filing_text: {detail}")
 
         ews_level = results.get("ews", {}).get("data", {}).get("warning_level")
         roic_creating = results.get("roic_wacc", {}).get("data", {}).get("creating_value")
@@ -834,6 +846,16 @@ Requirements:
 - Do not add prices, forecasts, recommendations, or facts absent from the report.
 - Explicitly qualify low-confidence or assumption-based findings.
 - Every claim drawn from a filing passage must cite its bracketed source.
+- The two sources are not peers. The research report carries the canonical
+  figures for this company and period, each with its own unit and period. Use
+  it for every value. Filing passages are for what the filing *says* --
+  accounting policy, judgement, method, risk, contingency -- not for numbers:
+  a statement restates the same line item for prior periods, for segments and
+  for subsidiaries, so a figure read out of a passage is likely to be real but
+  attached to the wrong period or entity. Never use a passage to override,
+  restate or "correct" a value in the report. If a passage appears to
+  contradict a report value, report that as a contradiction rather than
+  silently preferring either one.
 """
 
         response = self.llm.invoke(
