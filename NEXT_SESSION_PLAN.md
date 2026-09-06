@@ -15,8 +15,8 @@ here — merged PRs carry that.
 | repo | `johnny861110/Financial_Agent` | `johnny861110/FinancialReports` |
 | local | `/mnt/c/Users/johnn/GITHUB_REPO/Financial_Agent` | `/mnt/c/Users/johnn/GITHUB_REPO/FinancialReports` |
 | latest merged PR | #15 | #7 |
-| working branch | `feat/react-research-workbench` (17 ahead) | `fix/schedule-section-detection` (19 ahead) |
-| tests | 213 | 145 |
+| working branch | `feat/react-research-workbench` (19 ahead) | `fix/schedule-section-detection` (20 ahead) |
+| tests | 217 | 148 |
 | CI | gates + cross-repo smoke, green | gates on 3.10/3.11/3.12, green |
 
 **Nothing is pushed: the GitHub account is suspended.** Both repos carry
@@ -236,6 +236,17 @@ python -m evaluation      # exits non-zero if any measure is not exact
 ## 5. Traps that have already cost time
 
 Every one of these was found by running something, not by reading code.
+
+**Two config files disagree with the code about sampling temperature.**
+`docker-compose.yaml` defaulted `LLM_TEMPERATURE` to 1.0 against `config.py`
+and `.env.example`'s 0.0, so every containerised run composed financial figures
+at full sampling temperature; a run under it reported revenue as 10,485,855
+against a filed 10,484,855. The compose default is fixed, but compose also
+substitutes from `.env`, and the local `.env` still pins `LLM_TEMPERATURE=1.0`
+and `LLM_MODEL=gpt-3.5-turbo` -- whose 16,385-token window is what the composer
+overflowed. Check the value **inside** the container
+(`docker exec financial-agent-api printenv LLM_TEMPERATURE`), not in the
+compose file.
 
 **The full test suite passing says nothing about research mode.** No test
 exercises the LLM, so `POST /api/agent/research` returned 500 for every query

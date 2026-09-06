@@ -86,7 +86,7 @@ between narrow and broad behavior from the request.
 
 ## Verification Status
 
-The current consumer passes Black, Python compilation, mypy, and 213 pytest
+The current consumer passes Black, Python compilation, mypy, and 217 pytest
 tests. Coverage includes absence states, unit mismatch, validation filtering,
 producer metrics, missing-safe trend behavior, provider resilience, Agent
 workflow, services, and API behavior.

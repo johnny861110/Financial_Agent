@@ -591,6 +591,9 @@ FINANCIAL_REPORTS_BASE_URL=http://127.0.0.1:8010 \
   uv run python scripts/retrieval_benchmark.py --limit 20
 ```
 
+Current reading against the live corpus (40 narrative probes): hit@10 88%,
+mean rank 1.4 when hit, 100% reaching the model.
+
 It derives its probes from the corpus and excludes any note title that names a
 canonical field, because scoring retrieval on 應收帳款 or 營業收入 measures a
 path that should never be taken — those come from the structured fields. It
