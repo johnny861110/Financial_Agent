@@ -600,3 +600,20 @@ def test_the_provenance_check_discriminates():
     assert untraceable("毛利率為 66.25%，營業利益率為 58.10%。") == []
     assert untraceable("毛利率約 66.2%。") == []
     assert untraceable("發現 1 個擔憂點，共 5 項資料缺口。") == []
+
+
+def test_the_configured_temperature_is_the_one_used():
+    """A setting three files describe and no code reads is worse than none.
+
+    `llm_temperature` was defined in config, documented in .env.example and set
+    in docker-compose, while the single ChatOpenAI construction hardcoded 0.0.
+    That made a documented knob inert -- and made me report a defect whose
+    stated consequence I could not have observed.
+    """
+    import inspect
+
+    from app.agents.workflow import FinancialAgent
+
+    source = inspect.getsource(FinancialAgent.__init__)
+    assert "temperature=self.settings.llm_temperature" in source
+    assert "temperature=0.0" not in source

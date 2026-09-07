@@ -218,9 +218,15 @@ class FinancialAgent:
 
     def __init__(self):
         self.settings = get_settings()
+        # `llm_temperature` was defined in config, documented in .env.example
+        # and set in compose, and read by nothing: this call hardcoded 0.0 and
+        # was the only place an LLM is constructed. A setting that three files
+        # describe and no code obeys is worse than no setting, so it is honoured
+        # here -- and it defaults to 0.0 in all three, because the composer
+        # restates exact filed figures and sampling has no upside for that.
         self.llm = ChatOpenAI(
             model=self.settings.llm_model,
-            temperature=0.0,  # Force zero temperature for extraction
+            temperature=self.settings.llm_temperature,
             api_key=self.settings.openai_api_key,
         )
         self.parser = PydanticOutputParser(pydantic_object=IntentClassification)
@@ -1034,6 +1040,15 @@ Requirements:
   from reporting a wrong number.
 - Cite only the figures the question calls for. Do not list the whole evidence
   block.
+- Never compute a figure, including one the question asks you to compute. If a
+  question asks for a difference, a sum, a ratio or a growth rate, answer only
+  from a field that already holds it -- free_cash_flow is operating cash flow
+  net of capital expenditure and is supplied whenever it is known. If no field
+  holds the requested quantity, say that it is not available rather than
+  deriving it. Capital expenditure is stored as a negative number, so
+  subtracting it adds the spending back: asked for "營業現金流和資本支出兩者
+  相減" a model answered 10,497.39 億元, which is arithmetically defensible and
+  economically meaningless, where free_cash_flow was 3,482.13 億元.
 - Each evidence row carries a `display` field with the figure already written
   at a readable scale. Quote `display` verbatim. Do not convert `value`
   yourself and do not recompute the scale: asked to do so the conversion came

@@ -143,6 +143,21 @@ class Runner:
             if isinstance(item.get("value"), (int, float)):
                 admit(float(item["value"]))
 
+        # Numbers the response itself carries outside evidence -- confidence
+        # scores, tool scores, counts. A model quoting `confidence_score` 0.413
+        # is copying, not inventing, and failing it taught the gate nothing.
+        def walk(node: object) -> None:
+            if isinstance(node, dict):
+                for value in node.values():
+                    walk(value)
+            elif isinstance(node, list):
+                for value in node:
+                    walk(value)
+            elif isinstance(node, (int, float)) and not isinstance(node, bool):
+                admit(float(node))
+
+        walk({k: v for k, v in response.items() if k != "answer"})
+
         import httpx
 
         try:
