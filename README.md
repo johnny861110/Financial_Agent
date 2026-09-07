@@ -602,6 +602,14 @@ re-ingest changes what is expected instead of breaking the gate; assertions are
 about substance (a value that must appear, a claim that must not, a source that
 must be cited) rather than phrasing, because an LLM writes the prose.
 
+The strictest assertion is `forbid_invented_numbers`: every figure in the
+answer must trace to a value the backend supplied, at any scale it may be
+written. A model that computes rather than copies is unsound however well it
+tests -- asked to rescale one figure it produced `348,213.47 萬元` from
+348,213,466 thousands, the right digits under the wrong power of ten. The check
+is itself covered by a unit test, because a gate that never fails is not a
+gate.
+
 Every pytest run imports from the working copy, so a dependency missing from
 the *image* is invisible to all of them, and nothing in the suite reads compose
 at all -- which is how a compose default of `LLM_TEMPERATURE=1.0` survived a

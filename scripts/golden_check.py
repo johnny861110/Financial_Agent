@@ -60,10 +60,15 @@ class Runner:
         self.api = api.rstrip("/")
         import httpx
 
-        self.client = httpx.Client(timeout=240.0)
+        self.client = httpx.Client(timeout=420.0)
 
     def canonical_value(self, stock: str, period: str, field: str) -> float | None:
-        r = self.client.get(f"{self.api}/api/financials/{stock}/{period}")
+        import httpx
+
+        try:
+            r = self.client.get(f"{self.api}/api/financials/{stock}/{period}")
+        except httpx.HTTPError:
+            return None
         if r.status_code != 200:
             return None
         body = r.json()
@@ -74,13 +79,29 @@ class Runner:
         return None
 
     def field_states(self, stock: str, period: str) -> dict[str, str]:
-        r = self.client.get(f"{self.api}/api/financials/{stock}/{period}")
+        import httpx
+
+        try:
+            r = self.client.get(f"{self.api}/api/financials/{stock}/{period}")
+        except httpx.HTTPError:
+            return {}
         if r.status_code != 200:
             return {}
         return ((r.json().get("data_context") or {}).get("field_states")) or {}
 
     def ask(self, s: Scenario) -> dict:
+        import httpx
+
         route = "research" if s.mode == "research" else "query"
+        try:
+            return self._ask(route, s)
+        except httpx.HTTPError as exc:
+            # A gate that raises is a gate nobody can read. A scenario that
+            # times out has failed -- an answer nobody receives is not an
+            # answer -- so it is reported as one instead of ending the run.
+            return {"__http__": "transport", "__body__": f"{type(exc).__name__}: {exc}"}
+
+    def _ask(self, route: str, s: Scenario) -> dict:
         r = self.client.post(
             f"{self.api}/api/agent/{route}",
             json={
@@ -93,6 +114,49 @@ class Runner:
         if r.status_code != 200:
             return {"__http__": r.status_code, "__body__": r.text[:400]}
         return r.json()
+
+    def supplied_numbers(self, s: Scenario, response: dict) -> set[float]:
+        """Every figure the backend produced, in every scale it may be written at.
+
+        A model is allowed to copy a value and to copy the pre-rendered scaling
+        of it; it is not allowed to produce a number that is neither. Scaled
+        forms are enumerated here rather than parsed out of the answer, because
+        the question is whether the figure has a source, not how it is spelled.
+        """
+        allowed: set[float] = set()
+
+        def admit(raw: float) -> None:
+            allowed.add(raw)
+            allowed.add(abs(raw))
+            for scale in (1e1, 1e5, 1e9):
+                allowed.add(raw / scale)
+                allowed.add(abs(raw) / scale)
+                # The rendered form is rounded to two decimals before the model
+                # sees it, so the answer carries the rounded figure, not this one.
+                allowed.add(round(raw / scale, 2))
+                allowed.add(round(abs(raw) / scale, 2))
+                # A model may write 66.2% for a stored 66.25.
+                allowed.add(round(raw / scale, 1))
+                allowed.add(round(abs(raw) / scale, 1))
+
+        for item in response.get("evidence") or []:
+            if isinstance(item.get("value"), (int, float)):
+                admit(float(item["value"]))
+
+        import httpx
+
+        try:
+            r = self.client.get(f"{self.api}/api/financials/{s.stock_code}/{s.period}")
+        except httpx.HTTPError:
+            return allowed
+        if r.status_code == 200:
+            body = r.json()
+            for group in body.values():
+                if isinstance(group, dict):
+                    for value in group.values():
+                        if isinstance(value, (int, float)):
+                            admit(float(value))
+        return allowed
 
     def check(self, s: Scenario) -> list[Failure]:
         fails: list[Failure] = []
@@ -171,6 +235,30 @@ class Runner:
                 )
             )
 
+        if s.forbid_invented_numbers:
+            supplied = self.supplied_numbers(s, response)
+            # The stock code and the period are identifiers the question itself
+            # supplied. They are digits, not figures, and demanding provenance
+            # for them would fail every answer that names what it is about.
+            identifiers = {s.stock_code, s.period, s.period[:4]}
+            for token in _NUMBER.findall(answer):
+                if token in identifiers:
+                    continue
+                value = _significant(token)
+                if value is None:
+                    continue
+                if not any(
+                    abs(value - allowed) <= max(abs(allowed), 1) * 1e-4 for allowed in supplied
+                ):
+                    fails.append(
+                        Failure(
+                            s.id,
+                            "every figure traces to a backend value",
+                            f"{token!r} appears in the answer but in nothing the backend supplied; "
+                            f"...{_around(answer, token)}...",
+                        )
+                    )
+
         if s.expect_field_states:
             states = self.field_states(s.stock_code, s.period)
             for fld, expected in s.expect_field_states.items():
@@ -179,6 +267,34 @@ class Runner:
                     fails.append(Failure(s.id, f"{fld} state is {expected!r}", f"was {actual!r}"))
 
         return fails
+
+
+# Digits the answer may carry without them being a reported figure: the period
+# it was asked about, the year, quarter numbers, list ordinals, and confidence
+# percentages the backend supplies separately.
+_NUMBER = __import__("re").compile(r"-?\d[\d,]*(?:\.\d+)?")
+
+
+def _significant(token: str) -> float | None:
+    """A number worth tracing, or None if it is noise.
+
+    A bare small integer is an ordinal ("1 個擔憂點", "5 項"), not a figure, and
+    demanding provenance for those would make the check unusable rather than
+    strict. Anything with a decimal point *is* checked however small, because
+    that is where a computed percentage hides: a threshold of 100 let
+    "提升 7.42 個百分點" through, and a margin the model subtracted itself is
+    exactly the arithmetic this exists to forbid.
+    """
+    try:
+        value = float(token.replace(",", ""))
+    except ValueError:
+        return None
+    has_decimal = "." in token
+    if not has_decimal and abs(value) < 100:
+        return None
+    if 1900 <= value <= 2100 and not has_decimal and "," not in token:
+        return None  # a year
+    return value
 
 
 def _around(text: str, needle: str, span: int = 60) -> str:

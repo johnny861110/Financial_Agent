@@ -61,6 +61,12 @@ class Scenario:
     # Fields that must resolve to this state in the readiness contract.
     expect_field_states: dict[str, str] = field(default_factory=dict)
 
+    # Every significant figure in the answer must trace to a value the backend
+    # supplied. A model that computes rather than copies is unsound however
+    # well it tests: asked to scale one figure it produced "348,213.47 萬元"
+    # from 348,213,466 thousands, wrong by a factor of 100.
+    forbid_invented_numbers: bool = False
+
 
 # --- Scenarios -------------------------------------------------------------
 
@@ -79,6 +85,7 @@ SCENARIOS: tuple[Scenario, ...] = (
         mode="quick",
         must_state_fields=("net_revenue",),
         must_not_contain=("尚未提供", "無法提供", "資料缺失", "not available"),
+        forbid_invented_numbers=True,
     ),
     Scenario(
         id="free-cash-flow-is-not-a-gap",
@@ -95,6 +102,7 @@ SCENARIOS: tuple[Scenario, ...] = (
         must_state_fields=("free_cash_flow",),
         must_not_report_gap=("free_cash_flow",),
         expect_field_states={"free_cash_flow": "present"},
+        forbid_invented_numbers=True,
     ),
     Scenario(
         id="real-gaps-stay-reported",
@@ -148,6 +156,21 @@ SCENARIOS: tuple[Scenario, ...] = (
         mode="quick",
         must_state_fields=("total_assets",),
         must_not_contain=("8660949685", "8,660,949,685"),
+        forbid_invented_numbers=True,
+    ),
+    Scenario(
+        id="arithmetic-is-not-the-models-job",
+        why=(
+            "A question phrased as a calculation invites the model to compute. "
+            "It must still only report figures the backend produced: asked to "
+            "rescale one, it answered '348,213.47 萬元' for 348,213,466 "
+            "thousands -- the right digits under the wrong power of ten."
+        ),
+        query="營業現金流和資本支出各是多少？兩者相減是多少？",
+        stock_code="2330",
+        period="2026Q1",
+        mode="quick",
+        forbid_invented_numbers=True,
     ),
     Scenario(
         id="narrative-cites-the-filing",

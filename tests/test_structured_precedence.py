@@ -555,3 +555,48 @@ def test_evidence_rows_carry_a_prerendered_figure():
     assert rows["free_cash_flow"]["display"] == "3,482.13 億元"
     # Per-share values are already readable and must not be scaled.
     assert "display" not in rows["eps_basic"]
+
+
+def test_the_provenance_check_discriminates():
+    """The golden gate's strictest assertion, tested rather than trusted.
+
+    A check that never fails is not a check. These six cases are the ones that
+    decide whether it is worth running: it must catch the 100x rescaling the
+    model actually produced and a percentage it computed itself, while passing
+    a correctly copied figure, a rounded one, and bare ordinals.
+    """
+    import sys
+    from pathlib import Path
+
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+    from scripts.golden_check import _NUMBER, _significant
+
+    supplied: set[float] = set()
+    for raw in (348213466.0, 698976265.0, -350762799.0, 66.25, 58.10):
+        for scale in (1, 1e1, 1e5, 1e9):
+            for value in (raw / scale, abs(raw) / scale):
+                supplied |= {value, round(value, 2), round(value, 1)}
+
+    def untraceable(answer: str) -> list[str]:
+        identifiers = {"2330", "2026Q1", "2026"}
+        found = []
+        for token in _NUMBER.findall(answer):
+            if token in identifiers:
+                continue
+            value = _significant(token)
+            if value is None:
+                continue
+            if not any(abs(value - a) <= max(abs(a), 1) * 1e-4 for a in supplied):
+                found.append(token)
+        return found
+
+    # Must catch: the real 100x error, and a difference the model computed.
+    assert untraceable("自由現金流為 348,213.47 萬元。") == ["348,213.47"]
+    assert untraceable("毛利率較上季提升 7.42 個百分點。") == ["7.42"]
+
+    # Must pass: a correctly copied figure, backend margins, a rounded margin,
+    # and bare ordinals that are counts rather than figures.
+    assert untraceable("自由現金流為 3,482.13 億元。") == []
+    assert untraceable("毛利率為 66.25%，營業利益率為 58.10%。") == []
+    assert untraceable("毛利率約 66.2%。") == []
+    assert untraceable("發現 1 個擔憂點，共 5 項資料缺口。") == []
