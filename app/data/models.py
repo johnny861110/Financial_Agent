@@ -195,4 +195,30 @@ class SnapshotRecord(BaseModel):
             )
             if len(items) >= limit:
                 break
+
+        # Canonical fields the producer derives rather than sources have no fact
+        # row, so they were absent from evidence even once availability called
+        # them present. Asked "自由現金流是多少", the model found no such row and
+        # answered with operating cash flow instead -- the wrong line item under
+        # the right label, which is worse than saying it did not know.
+        evidenced = {item.get("field") for item in items}
+        for availability in self.field_availability:
+            if availability.state != "present" or availability.field in evidenced:
+                continue
+            value = (self.metrics or {}).get(availability.field)
+            if not isinstance(value, (int, float)):
+                continue
+            items.append(
+                {
+                    "field": availability.field,
+                    "value": float(value),
+                    "unit": availability.unit,
+                    "statement": availability.statement,
+                    "source_type": "computed",
+                    "confidence": 1.0,
+                    "derivation": availability.reason,
+                }
+            )
+            if len(items) >= limit:
+                break
         return items[:limit]

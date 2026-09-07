@@ -89,6 +89,37 @@ class CanonicalFinancialContext:
     def availability(self, field: str) -> FieldAvailability:
         for item in self.record.field_availability:
             if item.field == field:
+                # A producer can contradict itself: publish a value for a field
+                # and declare that field absent in the same response. Observed
+                # on free_cash_flow across all 69 filings -- the producer
+                # derives availability from its raw fact rows while the
+                # snapshot is assembled from facts *plus* computed metrics, so
+                # a computed canonical field reaches the value and never the
+                # availability list.
+                #
+                # The value wins, because it demonstrably exists: reporting
+                # "自由現金流缺漏" while holding 348,213,466 is the worse
+                # error, and it reached a user. The contradiction is not
+                # swallowed -- `contract_violations()` reports every instance
+                # so a producer bug stays visible instead of being quietly
+                # corrected here forever.
+                # Only 'missing' is corrected. The other non-present states are
+                # deliberate statements, not failures to supply: 'not_applicable'
+                # says the field does not apply to this company (bank line items
+                # for a fab), 'null' says the source reported it empty, and
+                # 'provider_failure' says the lookup itself failed. Overriding
+                # any of those with a stray value would make a tool run on data
+                # that was correctly declared unusable.
+                if item.state == "missing" and self._derived_value(field) is not None:
+                    return item.model_copy(
+                        update={
+                            "state": "present",
+                            "reason": (
+                                "producer declared this field "
+                                f"{item.state!r} but published a value for it"
+                            ),
+                        }
+                    )
                 return item
 
         value = self._snapshot_value(field)
@@ -99,6 +130,36 @@ class CanonicalFinancialContext:
             state="present" if value is not None else "missing",
             reason=None if value is not None else "Field is absent from the provider record",
         )
+
+    def contract_violations(self) -> list[str]:
+        """Fields whose declared state disagrees with what the response carries.
+
+        Both directions are checked. A published value declared absent hides
+        data the caller has (free_cash_flow); a field declared present with no
+        value anywhere would send a tool looking for something that is not
+        there. Neither should be corrected silently, so these surface as data
+        gaps in the report and get logged.
+        """
+        violations: list[str] = []
+        for item in self.record.field_availability:
+            value = self._derived_value(item.field)
+            has_fact = any(fact.field == item.field for fact in self.record.facts)
+            if item.state == "missing" and value is not None:
+                violations.append(
+                    f"{item.field}: the producer declared this field {item.state!r} "
+                    f"but published the value {value:,.0f}; the value was used"
+                )
+            elif (
+                item.state == "present"
+                and value is None
+                and not has_fact
+                and self._snapshot_value(item.field) is None
+            ):
+                violations.append(
+                    f"{item.field}: the producer declared this field 'present' "
+                    "but published no value for it"
+                )
+        return violations
 
     def optional_fact(self, field: str, expected_unit: str | None = None) -> CanonicalFact | None:
         for fact in self.record.facts:
@@ -228,7 +289,32 @@ class CanonicalFinancialContext:
     def field_states(self, fields: Iterable[str]) -> dict[str, str]:
         return {field: self.availability(field).state for field in fields}
 
+    # Canonical fields the producer derives rather than sources, so they arrive
+    # as metrics and never as fact rows. `FinancialSnapshot` predates them and
+    # has no attribute for them, so without this lookup the value is present in
+    # the record the consumer already holds and unreachable by every caller --
+    # which is how "自由現金流缺漏" was reported beside a stored 348,213,466.
+    _DERIVED_FIELDS = {"free_cash_flow"}
+
+    def _derived_value(self, field: str) -> float | None:
+        """The producer's own computed value for a canonical field, or None.
+
+        Deliberately narrower than `_snapshot_value`. Only a figure the producer
+        published in this response counts: the legacy `FinancialSnapshot` object
+        can carry a stale or fixture-supplied number for a field the producer
+        has declared missing, and trusting that would resurrect data the
+        producer says it does not have.
+        """
+        if field not in self._DERIVED_FIELDS:
+            return None
+        metric = (self.record.metrics or {}).get(field)
+        return float(metric) if isinstance(metric, (int, float)) else None
+
     def _snapshot_value(self, field: str) -> float | None:
+        derived = self._derived_value(field)
+        if derived is not None:
+            return derived
+
         if self.record.snapshot is None:
             return None
         attribute = {"eps_basic": "eps"}.get(field, field)

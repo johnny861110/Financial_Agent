@@ -254,11 +254,15 @@ def test_composer_prompt_does_not_carry_evidence_twice():
     assert view["verdict"] == "中性"
     assert view["data_gaps"] == ["eps_diluted"]
 
-    # The second copy is gone, and with it the overflow. The rows themselves
-    # stay -- see the next test for why that is not negotiable.
-    assert (
-        len(json.dumps(view, ensure_ascii=False)) < len(json.dumps(report, ensure_ascii=False)) / 2
-    )
+    # The second copy is gone, and with it the overflow. Asserted structurally
+    # rather than by a size ratio: the rows legitimately carry a `display` field
+    # now, so a byte threshold measures formatting as much as duplication.
+    serialised = json.dumps(view, ensure_ascii=False)
+    assert serialised.count('"field_0"') == 1, "evidence still appears twice"
+    assert len(serialised) < len(json.dumps(report, ensure_ascii=False))
+    # The rows themselves stay -- see the next test for why that is not
+    # negotiable.
+    assert len(view["supporting_evidence"]) == 40
 
 
 def test_composer_prompt_keeps_every_evidence_row_of_a_normal_report():
@@ -463,3 +467,91 @@ def test_answer_prompt_requires_gaps_and_forbids_empty_sections():
     assert "Omit any section that would be empty" in source
     assert "`data_gaps` is the exception" in source
     assert "Never attach a passage citation to a" in source
+
+
+def test_a_derived_canonical_field_reaches_the_evidence():
+    """A field the producer computes has no fact row, and must still be evidence.
+
+    Asked "自由現金流是多少", the model found no free_cash_flow row among the
+    32 evidence entries and answered with operating cash flow instead -- the
+    wrong line item under the right label, which is worse than not knowing.
+    """
+    from app.data.models import FieldAvailability, SnapshotRecord
+
+    record = SnapshotRecord(
+        schema_version="1.0.0",
+        status="ready",
+        source="financial_reports",
+        facts=[],
+        metrics={"free_cash_flow": 348213466.0, "roe": 0.0966},
+        field_availability=[
+            FieldAvailability(
+                field="free_cash_flow",
+                statement="cash_flow",
+                unit="TWD_thousands",
+                state="present",
+                reason="derived from other canonical fields rather than supplied by a source",
+            ),
+            # Present but absent from metrics: nothing to evidence, and no crash.
+            FieldAvailability(
+                field="net_revenue",
+                statement="income_statement",
+                unit="TWD_thousands",
+                state="present",
+                reason=None,
+            ),
+            # Not present: must not be evidenced even though a metric exists.
+            FieldAvailability(
+                field="roe",
+                statement="returns",
+                unit="ratio",
+                state="missing",
+                reason="not supplied",
+            ),
+        ],
+    )
+
+    evidence = {item["field"]: item for item in record.agent_evidence()}
+
+    assert evidence["free_cash_flow"]["value"] == 348213466.0
+    assert evidence["free_cash_flow"]["source_type"] == "computed"
+    assert "derived" in evidence["free_cash_flow"]["derivation"]
+    assert "net_revenue" not in evidence
+    assert "roe" not in evidence
+
+
+def test_the_two_money_renderers_agree():
+    """One figure must not appear two ways in one answer.
+
+    `_money` writes the tool findings and `_readable_twd` writes the evidence
+    the prompt copies from; a divergence would put 3,482.13 億元 and something
+    else in the same paragraph.
+    """
+    from app.agents.tools import _money
+    from app.agents.workflow import _readable_twd
+
+    for value in (348213466.0, 8660949685.0, 1134103440.0, 15503.0, 5.0, -3389344.0, 0.0):
+        assert _readable_twd(value) == _money(value), value
+
+
+def test_evidence_rows_carry_a_prerendered_figure():
+    """The model must copy the scale, not compute it.
+
+    Asked to convert, it produced "348,213.47 萬元" from a stored 348,213,466
+    thousands: the right digits under the wrong power of ten, wrong by 100x.
+    """
+    from app.agents.workflow import _composer_report_view
+
+    view = _composer_report_view(
+        {
+            "findings": [],
+            "supporting_evidence": [
+                {"field": "free_cash_flow", "value": 348213466.0, "unit": "TWD_thousands"},
+                {"field": "eps_basic", "value": 22.08, "unit": "TWD_per_share"},
+            ],
+        }
+    )
+    rows = {row["field"]: row for row in view["supporting_evidence"]}
+    assert rows["free_cash_flow"]["display"] == "3,482.13 億元"
+    # Per-share values are already readable and must not be scaled.
+    assert "display" not in rows["eps_basic"]

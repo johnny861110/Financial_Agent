@@ -104,6 +104,18 @@ _ANALYSIS_TERMS = (
 )
 
 
+def _readable_twd(thousands: float) -> str:
+    """Render a TWD-thousands figure at a scale a person reads.
+
+    Kept identical to `app.agents.tools._money` and asserted equal in the tests,
+    because two renderings of the same figure in one answer is its own defect.
+    """
+    for scale, suffix in ((1e9, "兆"), (1e5, "億"), (1e1, "萬")):
+        if abs(thousands) >= scale:
+            return f"{thousands / scale:,.2f} {suffix}元"
+    return f"{thousands:,.0f} 千元"
+
+
 def _asks_for_broad_analysis(query: str) -> bool:
     """Decide whether a question wants a judgement or a specific figure.
 
@@ -153,6 +165,13 @@ def _composer_report_view(report: dict) -> dict:
     rows = report.get("supporting_evidence") or []
     for row in rows:
         compact = {k: row.get(k) for k in _EVIDENCE_KEYS if row.get(k) is not None}
+        # Pre-rendered, because the model gets the conversion wrong. Asked for
+        # free cash flow it answered "348,213.47 萬元" from a stored 348,213,466
+        # thousands -- the right digits divided by the wrong power of ten, off
+        # by two orders of magnitude. A financial answer cannot depend on the
+        # model doing arithmetic, so it is given the words to copy.
+        if isinstance(row.get("value"), (int, float)) and row.get("unit") == "TWD_thousands":
+            compact["display"] = _readable_twd(float(row["value"]))
         # +2 for the ", " the list serialisation adds around each row, so the
         # budget bounds the serialised block and not just the rows in it.
         budget -= len(json.dumps(compact, ensure_ascii=False)) + 2
@@ -190,6 +209,8 @@ class AgentState(TypedDict):
     field_states: dict[str, str]
     failed_rules: list[str]
     filing_text: dict
+    contract_violations: list[str]
+    resolved_fields: list[str]
 
 
 class FinancialAgent:
@@ -382,6 +403,8 @@ class FinancialAgent:
             state["evidence"] = []
             state["field_states"] = {}
             state["failed_rules"] = []
+            state["contract_violations"] = []
+            state["resolved_fields"] = []
             return state
 
         readiness_service = DataReadinessService(self.data_loader.provider)
@@ -415,10 +438,23 @@ class FinancialAgent:
             state["failed_rules"] = [
                 failure.rule_name for failure in context.failed_validations(severities=["error"])
             ]
+            state["contract_violations"] = context.contract_violations()
+            # `quality.missing_fields` is a second, independent declaration by
+            # the producer, and it is wrong about the same field its
+            # field_availability is wrong about. Reconcile it against what the
+            # context can actually resolve: a field we can produce a value for
+            # is not a gap, whoever says otherwise.
+            state["resolved_fields"] = [
+                field
+                for field in readiness.missing_fields
+                if context.availability(field).state == "present"
+            ]
         else:
             state["evidence"] = []
             state["field_states"] = {}
             state["failed_rules"] = []
+            state["contract_violations"] = []
+            state["resolved_fields"] = []
 
         if (
             readiness.status == "missing"
@@ -655,7 +691,10 @@ class FinancialAgent:
         findings: list[ResearchFinding] = []
         readiness = state.get("data_readiness", {})
         risks: list[str] = list(readiness.get("warnings", []))
-        gaps: list[str] = list(readiness.get("missing_fields", []))
+        resolved = set(state.get("resolved_fields") or [])
+        gaps: list[str] = [
+            field for field in readiness.get("missing_fields", []) if field not in resolved
+        ]
         evidence: list[dict] = []
         confidence_values: list[float] = []
 
@@ -703,6 +742,14 @@ class FinancialAgent:
         if reported.get("state") and reported["state"] != "present" and filing_text.get("chunks"):
             detail = reported.get("detail") or f"retrieval state: {reported['state']}"
             gaps.append(f"filing_text: {detail}")
+
+        # A producer that contradicts itself has been corrected in the context
+        # layer so the caller gets the value, but the correction must not become
+        # permanent by being invisible. Surfacing it here is what makes the
+        # producer-side fix land rather than sit behind a silent workaround.
+        for violation in state.get("contract_violations") or []:
+            gaps.append(f"provider contract: {violation}")
+            logger.warning("Provider contract violation: %s", violation)
 
         ews_level = results.get("ews", {}).get("data", {}).get("warning_level")
         roic_creating = results.get("roic_wacc", {}).get("data", {}).get("creating_value")
@@ -987,9 +1034,11 @@ Requirements:
   from reporting a wrong number.
 - Cite only the figures the question calls for. Do not list the whole evidence
   block.
-- Monetary values are in TWD *thousands*. Convert to 萬/億/兆 so a reader can
-  read them: 8660949685 千元 is 8.66 兆元, and printing the raw digits is
-  useless to a person. Keep the converted figure exact.
+- Each evidence row carries a `display` field with the figure already written
+  at a readable scale. Quote `display` verbatim. Do not convert `value`
+  yourself and do not recompute the scale: asked to do so the conversion came
+  out as "348,213.47 萬元" for a stored 348,213,466 thousands, which is the
+  right digits under the wrong power of ten and wrong by a factor of 100.
 - State the verdict and investment thesis.
 - Separate evidence, risks, contradictions, and data gaps.
 - Omit any section that would be empty. Do not write a heading followed by
@@ -1065,6 +1114,8 @@ Requirements:
             field_states={},
             failed_rules=[],
             filing_text={},
+            contract_violations=[],
+            resolved_fields=[],
         )
 
         # Run the workflow

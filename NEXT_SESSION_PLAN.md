@@ -224,6 +224,9 @@ uv run pytest tests/
 ```bash
 # Financial_Agent, against the built image rather than the source tree
 ./scripts/container_smoke.sh
+
+# The release gate: 8 scenarios, each one a bug that reached a user
+uv run python scripts/golden_check.py
 ```
 
 ```bash

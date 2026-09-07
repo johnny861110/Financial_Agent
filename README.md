@@ -587,6 +587,21 @@ Smoke-test the built image rather than the source tree:
 ./scripts/container_smoke.sh
 ```
 
+Run the golden gate. Nothing ships unless every scenario passes:
+
+```bash
+uv run python scripts/golden_check.py
+```
+
+Each scenario in `tests/golden/scenarios.py` is a question plus the properties
+its answer must hold, and each exists because a real answer failed it -- a data
+gap reported for a field the agent was holding, a status string published as an
+investment thesis, a figure converted to the wrong power of ten. Expected
+figures are read from the live API rather than written into the file, so a
+re-ingest changes what is expected instead of breaking the gate; assertions are
+about substance (a value that must appear, a claim that must not, a source that
+must be cited) rather than phrasing, because an LLM writes the prose.
+
 Every pytest run imports from the working copy, so a dependency missing from
 the *image* is invisible to all of them, and nothing in the suite reads compose
 at all -- which is how a compose default of `LLM_TEMPERATURE=1.0` survived a
