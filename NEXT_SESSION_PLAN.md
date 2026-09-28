@@ -301,6 +301,22 @@ the API then answers 409 for it. Always go through the pipeline:
 uv run fr run <stock> <year> <Qn> --stages extract,validate,insights --force
 ```
 
+**`fr run` takes `<stock> <year> <Qn>`, not a filing key.** A re-ingest loop
+that passed `2308_2024Q1` as one argument failed every filing while the shell
+reported nothing unusual; an earlier loop iterated a store method that does not
+exist and printed `0 ok, 0 failed` with exit code 0. Any batch script over the
+corpus should assert its input count up front and assert `ok == total` at the
+end, so "nothing happened" cannot pass for success. Filing keys come from
+`select filing_key from filings`; note that not every code is four digits
+(`TSLA_2026Q1` is in the corpus), so do not validate them as numeric.
+
+**A metric can be perfect and still measure nothing.** `citation_coverage`
+counts a citation as usable when it carries a page or a URL. It read 100% for
+the entire time the producer was stamping every chunk in a section with that
+section's first page, so citations across the corpus pointed at the wrong page
+of spans up to ninety pages. Well-formedness is not correctness; when a measure
+is exact, check what it would fail on.
+
 **A skipped test looks exactly like a passing one.** The cross-repo smoke job
 seeds a filing and sets `SMOKE_REQUIRE_DATA=1` so "no data" fails instead of
 skipping; the conftest raises instead of skipping when `CI` is set. Preserve
@@ -352,8 +368,7 @@ inspected.
 ```text
 Read NEXT_SESSION_PLAN.md first, then verify both repositories with
 `git rev-parse HEAD origin/main` and `git status` before trusting anything in
-it. Both should be on main and clean, but both carry unpushed commits -- see
-section 1. Decide whether to push those before starting new work.
+it. Both should be on main and clean.
 
 Do not rebuild what section 2 lists as already working -- in particular the
 provider protocol, CanonicalFinancialContext, the eight migrated services, the
@@ -364,10 +379,12 @@ Start with section 3.1: unsupported-claim rate is the one evaluation still
 missing, and it is the measure that would catch the agent asserting something
 no evidence supports. It needs a harness running with LLM_ENABLED=true that
 checks each claim in an answer against the report and the retrieved passages.
+Note that this spends the user's API credits -- say so before running it.
 
 Read section 5 before writing tests or CI: data/ is gitignored, skipped tests
-look like passing ones, a handoff's stated cause is only a hypothesis, and
-deterministic tests cannot tell you a design decision was wrong. Verify against
+look like passing ones, a handoff's stated cause is only a hypothesis, an exact
+metric can still be measuring the wrong thing, and deterministic tests cannot
+tell you a design decision was wrong. Verify against
 the real corpus, not just the suite.
 
 Use small commits with exact-path staging, run the gates in section 4, keep CI
