@@ -168,16 +168,28 @@ def test_missing_filing_is_still_a_404_not_a_422():
     assert response.status_code == 404
 
 
-def test_data_discovery_endpoints_list_stocks_and_periods():
+def test_data_discovery_endpoints_list_stocks_and_periods(monkeypatch):
+    # data/ is gitignored, so read from a stub; it lists periods oldest first,
+    # which makes the endpoint's newest-first ordering observable.
+    provider = RecordProvider(
+        {
+            ("2330", "2023Q4"): make_record("2023Q4"),
+            ("2330", "2024Q2"): make_record("2024Q2"),
+            ("2330", "2024Q1"): make_record("2024Q1"),
+            ("2454", "2024Q1"): make_record("2024Q1", stock_code="2454"),
+        }
+    )
+    monkeypatch.setattr("app.api.data.get_data_provider", lambda: provider)
+
     stocks = client.get("/api/data/stocks")
     periods = client.get("/api/data/2330/periods")
 
     assert stocks.status_code == 200
-    assert "2330" in stocks.json()["stocks"]
+    assert stocks.json()["stocks"] == ["2330", "2454"]
     assert periods.status_code == 200
     body = periods.json()
     assert body["stock_code"] == "2330"
-    assert body["periods"] == sorted(body["periods"], reverse=True)
+    assert body["periods"] == ["2024Q2", "2024Q1", "2023Q4"]
 
 
 def test_provider_outage_is_reported_as_503_not_500(monkeypatch):
