@@ -32,8 +32,14 @@ jobs:
       - name: Install dependencies
         run: uv sync --extra dev --frozen
 
+      # test_producer_smoke.py fails collection when no producer is reachable,
+      # and none runs here. The cross-repo smoke workflow runs those tests
+      # against a real producer build with SMOKE_REQUIRE_DATA set, so skipping
+      # them in this job loses no coverage.
       - name: Tests
         run: uv run pytest -q
+        env:
+          FA_ALLOW_SMOKE_SKIP: "1"
 
       - name: Type check (mypy)
         run: >
