@@ -38,6 +38,8 @@ class FinancialDataProvider(Protocol):
 
     def list_all_stocks(self) -> list[str]: ...
 
+    def company_names(self) -> dict[str, str]: ...
+
     def get_context(
         self,
         stock_code: str,
@@ -100,6 +102,9 @@ class JsonFinancialDataProvider:
         }
         return sorted(stocks)
 
+    def company_names(self) -> dict[str, str]:
+        return {}
+
     def get_context(
         self,
         stock_code: str,
@@ -146,6 +151,7 @@ class FinancialReportsProvider:
         self.cache_ttl_seconds = max(0.0, cache_ttl_seconds)
         self._client = client or httpx.Client(base_url=self.base_url, timeout=timeout)
         self._record_cache: dict[tuple[str, str], tuple[float, SnapshotRecord]] = {}
+        self._names_cache: tuple[float, dict[str, str]] | None = None
 
     def _request(self, method: str, path: str, **kwargs: Any) -> httpx.Response:
         last_error: Exception | None = None
@@ -329,22 +335,43 @@ class FinancialReportsProvider:
                 return sorted(set(periods))
             offset += len(page)
 
-    def list_all_stocks(self) -> list[str]:
-        stocks: list[str] = []
+    def _stock_items(self) -> list[Any]:
+        items: list[Any] = []
         offset = 0
         while True:
             response = self._request("GET", "/v1/stocks", params={"limit": 100, "offset": offset})
             response.raise_for_status()
             body = self._response_object(response)
             page = body.get("stocks", [])
-            stocks.extend(
-                str(item.get("stock_code")) if isinstance(item, dict) else str(item)
-                for item in page
-            )
-            total = int((body.get("pagination") or {}).get("total", len(stocks)))
-            if not page or len(stocks) >= total:
-                return sorted(set(stocks))
+            items.extend(page)
+            total = int((body.get("pagination") or {}).get("total", len(items)))
+            if not page or len(items) >= total:
+                return items
             offset += len(page)
+
+    def list_all_stocks(self) -> list[str]:
+        return sorted(
+            {
+                str(item.get("stock_code")) if isinstance(item, dict) else str(item)
+                for item in self._stock_items()
+            }
+        )
+
+    def company_names(self) -> dict[str, str]:
+        """Map stock code to Chinese short name, for codes the producer has named."""
+        cached = self._names_cache
+        if cached and time.monotonic() - cached[0] <= self.cache_ttl_seconds:
+            return dict(cached[1])
+        names = {
+            str(item["stock_code"]): str(item["name_zh"]).strip()
+            for item in self._stock_items()
+            if isinstance(item, dict)
+            and item.get("stock_code")
+            and item.get("name_zh")
+            and str(item["name_zh"]).strip() != str(item["stock_code"])
+        }
+        self._names_cache = (time.monotonic(), names)
+        return dict(names)
 
     def get_context(
         self,
@@ -431,6 +458,12 @@ class FallbackFinancialDataProvider:
             return self.primary.list_all_stocks()
         except FinancialDataProviderUnavailable:
             return self.fallback.list_all_stocks()
+
+    def company_names(self) -> dict[str, str]:
+        try:
+            return self.primary.company_names()
+        except FinancialDataProviderUnavailable:
+            return self.fallback.company_names()
 
     def get_context(
         self,

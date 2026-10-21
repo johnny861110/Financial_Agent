@@ -21,6 +21,9 @@ class RecordProvider:
     def list_all_stocks(self) -> list[str]:
         return sorted({code for code, _ in self.records})
 
+    def company_names(self) -> dict[str, str]:
+        return {}
+
     def get_context(self, stock_code: str, period: str, question: str | None = None) -> dict | None:
         item = self.load_record(stock_code, period)
         return item.model_dump(mode="json") if item else None

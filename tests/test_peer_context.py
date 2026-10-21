@@ -101,3 +101,30 @@ def test_compare_peers_current_ratio_excludes_missing_company():
     assert len(analysis.comparisons) == 1
     current_ratio = analysis.comparisons[0]
     assert set(current_ratio.companies) == {"TSMC", "MediaTek"}
+
+
+def test_summary_names_the_real_leader_when_companies_have_names():
+    """
+    Comparisons carry company names; the summary used to match them against
+    stock codes as text, so with real names every count was zero and the first
+    peer listed was declared the leader.
+    """
+    service = PeerService(DataLoader(_provider()))
+
+    analysis = service.compare_peers(["2454", "2330"], "2025Q1")
+
+    assert analysis is not None
+    assert analysis.summary.startswith("Overall leader: 2330 ")
+
+
+def test_summary_claims_no_leader_when_no_metric_resolves_to_a_peer():
+    service = PeerService(DataLoader(_provider()))
+    analysis = service.compare_peers(["2454", "2330"], "2025Q1")
+    assert analysis is not None
+    for comparison in analysis.comparisons:
+        comparison.companies = ["Unknown A", "Unknown B"]
+
+    contexts = [service.data_loader.load_context(code, "2025Q1") for code in ["2454", "2330"]]
+    summary = service._generate_summary(analysis.comparisons, contexts)
+
+    assert summary == "Peer comparison completed"
