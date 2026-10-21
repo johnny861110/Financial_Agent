@@ -123,3 +123,37 @@ def test_apply_entities_keeps_the_caller_period_when_nothing_parses():
     assert state["period"] == "2025Q1"
     assert state["entities"]["period_raw"] == "sometime next year"
     assert "period" not in state["entities"]
+
+
+def test_apply_entities_keeps_the_caller_stock_when_the_llm_returns_a_name():
+    """'台積電' from the LLM must not replace the 2330 the caller supplied."""
+    agent = FinancialAgent.__new__(FinancialAgent)
+    state = {"period": "2025Q4", "stock_code": "2330", "entities": {}}
+
+    FinancialAgent._apply_entities(
+        agent, state, {"stock_code": "台積電", "period": "2025Q4"}, {"period": "2025Q4"}
+    )
+
+    assert state["stock_code"] == "2330"
+    assert state["entities"]["stock_code_raw"] == "台積電"
+    assert "stock_code" not in state["entities"]
+
+
+def test_apply_entities_prefers_the_keyword_ticker_over_an_llm_name():
+    agent = FinancialAgent.__new__(FinancialAgent)
+    state = {"period": "2025Q4", "stock_code": "2330", "entities": {}}
+
+    FinancialAgent._apply_entities(agent, state, {"stock_code": "聯發科"}, {"stock_code": "2454"})
+
+    assert state["stock_code"] == "2454"
+    assert state["entities"]["stock_code"] == "2454"
+
+
+@pytest.mark.parametrize("code", ["2330", "00878", "2881A"])
+def test_apply_entities_accepts_ticker_shaped_codes(code):
+    agent = FinancialAgent.__new__(FinancialAgent)
+    state = {"period": "2025Q4", "stock_code": "9999", "entities": {}}
+
+    FinancialAgent._apply_entities(agent, state, {"stock_code": code})
+
+    assert state["stock_code"] == code

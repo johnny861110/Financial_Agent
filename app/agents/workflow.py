@@ -2,6 +2,7 @@
 
 import json
 import logging
+import re
 from typing import Any, TypedDict, Annotated, Sequence
 
 from langgraph.graph import StateGraph, END
@@ -31,6 +32,10 @@ MAX_PROMPT_EVIDENCE_CHARS = 12000
 # optional here: values are in TWD thousands, and a figure quoted without it is
 # wrong by three orders of magnitude.
 _EVIDENCE_KEYS = ("field", "value", "unit", "statement", "source_type")
+
+# TWSE/TPEx codes: four digits for common stock, up to six for ETFs and
+# warrants, optionally a trailing letter for preferred shares (2881A).
+_TICKER_PATTERN = re.compile(r"\d{4,6}[A-Z]?")
 
 
 # Words that name a specific thing to look up. A question containing one of
@@ -856,7 +861,18 @@ class FinancialAgent:
             entities["period_raw"] = str(raw_period)
             entities.pop("period", None)
 
-        stock_code = entities.get("stock_code")
+        # An LLM asked for a stock_code will hand back the company name when the
+        # query names one ("台積電"), and that name would overwrite a valid code
+        # the caller supplied. Only a ticker-shaped value may reach the state.
+        raw_stock = entities.get("stock_code")
+        stock_code = str(raw_stock).strip() if raw_stock else None
+        if stock_code and not _TICKER_PATTERN.fullmatch(stock_code):
+            entities["stock_code_raw"] = stock_code
+            stock_code = (fallback_entities or {}).get("stock_code")
+            if stock_code:
+                entities["stock_code"] = stock_code
+            else:
+                entities.pop("stock_code", None)
         if stock_code:
             state["stock_code"] = str(stock_code)
 

@@ -103,8 +103,8 @@ curl http://127.0.0.1:8000/api/data/jobs/JOB_ID
 
 ```bash
 uv run black --check app tests
-uv run python -m compileall -q app tests ui
-uv run mypy app/data app/agents app/api app/services app/models/agent_models.py ui/api_client.py
+uv run python -m compileall -q app tests
+uv run mypy app/data app/agents app/api app/services app/models/agent_models.py app/models/api_models.py evaluation
 uv run pytest
 git -c core.whitespace=cr-at-eol diff --check
 ```
