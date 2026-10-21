@@ -191,4 +191,8 @@ class PeerService:
         if wins == 0:
             # Every count tied at zero; max() would name the first peer anyway.
             return "Peer comparison completed"
-        return f"Overall leader: {leader} (top rank in {wins} metrics)"
+        # The comparison rows name companies, so the summary names the leader
+        # both ways; a bare code left the answer unable to tie 2330 to 台積電.
+        name = next(c.company_name for c in contexts if c.stock_code == leader)
+        label = leader if name == leader else f"{leader} {name}"
+        return f"Overall leader: {label} (top rank in {wins} metrics)"
