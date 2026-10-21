@@ -37,6 +37,41 @@ _EVIDENCE_KEYS = ("field", "value", "unit", "statement", "source_type")
 # warrants, optionally a trailing letter for preferred shares (2881A).
 _TICKER_PATTERN = re.compile(r"\d{4,6}[A-Z]?")
 
+# Listing suffixes users leave off: "世芯" for 世芯-KY.
+_NAME_SUFFIXES = ("-KY", "*")
+
+
+def _codes_named_in(query: str, names: dict[str, str]) -> list[str]:
+    """
+    Return the stock codes whose company names appear in the query, in the
+    order they appear. The longest name at a position wins and claims its whole
+    span, so 富邦 inside 富邦金 cannot add a second company.
+    """
+    aliases: dict[str, str] = {}
+    for code, name in names.items():
+        aliases[name] = code
+        for suffix in _NAME_SUFFIXES:
+            if name.endswith(suffix):
+                aliases[name[: -len(suffix)].strip()] = code
+
+    found: list[tuple[int, int, str]] = []
+    for alias, code in aliases.items():
+        if len(alias) < 2:
+            continue
+        position = query.find(alias)
+        if position >= 0:
+            found.append((position, -len(alias), code))
+
+    codes: list[str] = []
+    covered_until = 0
+    for position, negative_length, code in sorted(found):
+        if position < covered_until:
+            continue
+        covered_until = position - negative_length
+        if code not in codes:
+            codes.append(code)
+    return codes
+
 
 # Words that name a specific thing to look up. A question containing one of
 # these is asking for that thing, so the intent router's single-tool plan is
@@ -803,6 +838,8 @@ class FinancialAgent:
         query = state["query"]
 
         fallback_intent, fallback_entities = self._keyword_classification(query)
+        if "stock_code" not in fallback_entities:
+            self._add_named_companies(query, fallback_entities)
         if not self.settings.openai_api_key:
             state["intent"] = fallback_intent
             self._apply_entities(state, fallback_entities)
@@ -834,6 +871,24 @@ class FinancialAgent:
             self._apply_entities(state, fallback_entities)
 
         return state
+
+    def _add_named_companies(self, query: str, entities: dict[str, Any]) -> None:
+        """
+        Resolve company names in the query to stock codes, as a ticker would be.
+
+        Users ask about 台積電, not 2330. The resolved code goes into the keyword
+        entities, which _apply_entities already prefers over the LLM's guess.
+        """
+        try:
+            names = self.data_loader.provider.company_names()
+        except Exception as exc:
+            logger.warning("Company names unavailable; names will not resolve: %s", exc)
+            return
+        codes = _codes_named_in(query, names)
+        if codes:
+            entities["stock_code"] = codes[0]
+        if len(codes) > 1:
+            entities["peer_stocks"] = codes
 
     def _apply_entities(
         self,
@@ -873,8 +928,26 @@ class FinancialAgent:
                 entities["stock_code"] = stock_code
             else:
                 entities.pop("stock_code", None)
+        elif not stock_code and (fallback_entities or {}).get("stock_code"):
+            # The LLM may name companies under other keys (stock_code_1, ...)
+            # and leave stock_code out; the resolved code still applies.
+            stock_code = (fallback_entities or {})["stock_code"]
+            entities["stock_code"] = stock_code
         if stock_code:
             state["stock_code"] = str(stock_code)
+
+        # The same holds for peers: names from the LLM give way to resolved codes.
+        peers = entities.get("peer_stocks")
+        fallback_peers = (fallback_entities or {}).get("peer_stocks")
+        if peers and not all(_TICKER_PATTERN.fullmatch(str(peer).strip()) for peer in peers):
+            entities["peer_stocks_raw"] = [str(peer) for peer in peers]
+            peers = None
+        if peers:
+            entities["peer_stocks"] = peers
+        elif fallback_peers:
+            entities["peer_stocks"] = fallback_peers
+        else:
+            entities.pop("peer_stocks", None)
 
         state["entities"] = entities
 

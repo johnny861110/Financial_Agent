@@ -30,6 +30,9 @@ class StubProvider:
     def list_all_stocks(self) -> list[str]:
         return []
 
+    def company_names(self) -> dict[str, str]:
+        return {}
+
     def get_context(
         self, stock_code: str, period: str, question: str | None = None
     ) -> dict[str, Any] | None:
