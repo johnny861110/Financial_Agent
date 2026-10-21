@@ -118,7 +118,7 @@ class PeerService:
             )
 
         # Generate summary
-        summary = self._generate_summary(comparisons, stock_codes)
+        summary = self._generate_summary(comparisons, contexts)
 
         return PeerAnalysis(period=period, comparisons=comparisons, summary=summary)
 
@@ -170,23 +170,25 @@ class PeerService:
             )
         )
 
-    def _generate_summary(self, comparisons: List[PeerComparison], stock_codes: List[str]) -> str:
+    def _generate_summary(
+        self, comparisons: List[PeerComparison], contexts: List[CanonicalFinancialContext]
+    ) -> str:
         """Generate summary of peer positioning."""
-        # Count how many times each company ranks #1
-        first_place_counts = {}
-        for code in stock_codes:
-            first_place_counts[code] = 0
+        # Comparisons name companies by company_name, which is the stock code only
+        # when the producer has no name for it. Map back through the contexts
+        # rather than matching codes against names as text.
+        code_by_name = {context.company_name: context.stock_code for context in contexts}
+        first_place_counts = {context.stock_code: 0 for context in contexts}
 
         for comp in comparisons:
-            best = comp.best_performer
-            for code in stock_codes:
-                if code in best or best in code:
-                    first_place_counts[code] = first_place_counts.get(code, 0) + 1
-                    break
+            code = code_by_name.get(comp.best_performer)
+            if code is not None:
+                first_place_counts[code] += 1
 
-        # Find overall leader
-        if first_place_counts:
-            leader = max(first_place_counts.items(), key=lambda x: x[1])
-            return f"Overall leader: {leader[0]} (top rank in {leader[1]} metrics)"
-
-        return "Peer comparison completed"
+        if not first_place_counts:
+            return "Peer comparison completed"
+        leader, wins = max(first_place_counts.items(), key=lambda item: item[1])
+        if wins == 0:
+            # Every count tied at zero; max() would name the first peer anyway.
+            return "Peer comparison completed"
+        return f"Overall leader: {leader} (top rank in {wins} metrics)"
