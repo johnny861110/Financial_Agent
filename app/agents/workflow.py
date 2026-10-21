@@ -230,6 +230,93 @@ def _composer_report_view(report: dict) -> dict:
     return view
 
 
+# A passage reference as the composer writes it. The prompt gives "[市場風險 ·
+# p.39 · chunk 123]"; the model re-brackets it as 【...】 and sometimes drops the
+# chunk, leaving 【市場風險 · p.39】.
+_CITATION = re.compile(r"[\[【]([^\[\]【】\n]*?(?:chunk\s*\d+|p\.\s*\d+)[^\[\]【】\n]*)[\]】]")
+_CHUNK_ID = re.compile(r"chunk\s*(\d+)")
+# A figure as an answer states one: an amount in 元/千/萬/億/兆, or a percentage.
+_FIGURE = re.compile(r"\d[\d,]*(?:\.\d+)?\s*(?:%|％|千元|萬元|億元|兆元|元|萬|億|兆)")
+_SENTENCE_END = "。！？!?\n"
+# "矛盾：無" and the like -- a section the prompt says to omit when empty.
+_EMPTY_SECTION = re.compile(
+    r"^[ \t]*(?:[-*•][ \t]*)?(?:\*\*)?[^\n：:]{1,12}?(?:\*\*)?[ \t]*[：:][ \t]*"
+    r"(?:\*\*)?(?:無|无|沒有|none|n/?a)(?:\*\*)?[。.]?[ \t]*$",
+    re.IGNORECASE | re.MULTILINE,
+)
+
+
+def _cited_text(text: str, start: int, end: int) -> str:
+    """The text a citation spanning text[start:end] vouches for.
+
+    Inside or right after a sentence, that sentence. After the full stop that
+    closes a paragraph, the whole paragraph, which is how a reader takes a
+    reference set at the end of one.
+    """
+    stop = start
+    while stop > 0 and text[stop - 1] == " ":
+        stop -= 1
+    rest = text[end:].lstrip(" ")
+    after_full_stop = stop > 0 and text[stop - 1] in _SENTENCE_END
+    if after_full_stop and (not rest or rest[0] == "\n"):
+        return text[text.rfind("\n", 0, stop) + 1 : stop]
+    while stop > 0 and text[stop - 1] in _SENTENCE_END:
+        stop -= 1
+    begin = stop
+    while begin > 0 and text[begin - 1] not in _SENTENCE_END:
+        begin -= 1
+    return text[begin:stop]
+
+
+def _cites_a_retrieved_passage(reference: str, chunks: list[dict]) -> bool:
+    """Whether a bracketed reference names a passage this answer was given.
+
+    By chunk id when the reference carries one, otherwise by the section and
+    page that `citation` renders.
+    """
+    chunk_id = _CHUNK_ID.search(reference)
+    if chunk_id:
+        return any(str(chunk.get("chunk_id")) == chunk_id.group(1) for chunk in chunks)
+    return reference.strip() in {citation(chunk).split(" · chunk ")[0] for chunk in chunks}
+
+
+def _enforce_answer_rules(answer: str, chunks: list[dict]) -> tuple[str, list[str]]:
+    """Apply the composer rules the model is told but does not always follow.
+
+    The prompt forbids attaching a passage citation to a figure and writing an
+    empty section such as "矛盾：無". Asked anyway, the model still did both:
+    one 2026Q2 answer listed 淨利 7,067.81億元 and 營業利益率 60.34% and closed
+    the paragraph with 【附表一 · p.54】, telling the reader the figures were
+    read out of the filing when they came from the structured report. A rule
+    that matters for whether an answer can be trusted is enforced here rather
+    than left to the prompt. Returns the cleaned answer and what was removed.
+    """
+    removed: list[str] = []
+
+    def drop_bad_citation(match: re.Match[str]) -> str:
+        if not _cites_a_retrieved_passage(match.group(1), chunks):
+            removed.append(f"citation to a passage that was not retrieved: {match.group(1)}")
+            return ""
+        cited = _cited_text(match.string, match.start(), match.end())
+        if _FIGURE.search(_CITATION.sub("", cited)):
+            removed.append(f"passage citation attached to a figure: {match.group(1)}")
+            return ""
+        return match.group(0)
+
+    # Right to left, so a sentence carrying two citations is judged on its own
+    # text rather than on the first citation's replacement.
+    cleaned = answer
+    for match in reversed(list(_CITATION.finditer(answer))):
+        replacement = drop_bad_citation(match)
+        cleaned = cleaned[: match.start()] + replacement + cleaned[match.end() :]
+
+    for match in _EMPTY_SECTION.finditer(cleaned):
+        removed.append(f"empty section: {match.group(0).strip()}")
+    cleaned = _EMPTY_SECTION.sub("", cleaned)
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned).strip()
+    return cleaned, removed
+
+
 class AgentState(TypedDict):
     """State for the agent workflow."""
 
@@ -1182,7 +1269,12 @@ Requirements:
             [HumanMessage(content=prompt)],
             config=self._langfuse_config(),
         )
-        state["final_answer"] = response.content
+        answer, removed = _enforce_answer_rules(
+            str(response.content), filing_text.get("chunks", [])
+        )
+        for item in removed:
+            logger.warning("Composer broke an answer rule, removed %s", item)
+        state["final_answer"] = answer
 
         return state
 
