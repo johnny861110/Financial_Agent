@@ -98,16 +98,13 @@ Two things the old write-up of it would get wrong, both found by measuring:
 
 1. ~~Merge `feat/resolve-company-names`.~~ Done: merged as #18 (name → code
    resolution, and the peer summary naming the real leader).
-2. **Refresh the three filings that never got a source document**, so their
-   snapshot stops answering 409 `filing_has_no_source_documents`:
-   2330 2026Q2 and 2379 2026Q2 (doc.twse lists both PDFs as of 2026-10-21).
-   Skip 7418 2026Q1: doc.twse answers 檔案不存在 and 7418 is in neither the
-   TWSE nor the TPEx company list (likely emerging-board). The agent's auto
-   mode refused the refresh POST as a shared-resource change, so the user runs
-   it. Refresh does **not**
-   embed: run `fr embed` afterwards (see §4) or those filings serve
-   importance-order retrieval. Refreshing *settled* quarters is pointless —
-   see "stale" in §5.
+2. ~~Refresh the filings that never got a source document.~~ Done
+   2026-10-21: 2330 and 2379 2026Q2 refreshed (184 / 193 chunks, validation
+   0.82) and embedded with `fr embed --stock`; retrieval is semantic. 7418
+   2026Q1 is left alone: doc.twse answers 檔案不存在 and 7418 is in neither
+   the TWSE nor the TPEx list (likely emerging-board). The agent's auto mode
+   refuses the refresh POST as a shared-resource change, so the user runs it.
+   Refresh does **not** embed — always follow it with `fr embed`.
 3. ~~The research answer under-reports peer comparisons.~~ Fixed on
    `fix/peer-answer-coverage`: the peer tool returned no evidence, so the
    executor filled in the primary company's rows and the composer never saw a
