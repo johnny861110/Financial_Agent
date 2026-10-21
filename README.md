@@ -622,7 +622,7 @@ corpus is re-ingested.
 Run type checks:
 
 ```bash
-uv run mypy app/data app/agents app/api app/services app/models/agent_models.py ui/api_client.py
+uv run mypy app/data app/agents app/api app/services app/models/agent_models.py app/models/api_models.py evaluation
 ```
 
 Compile-check Python files:

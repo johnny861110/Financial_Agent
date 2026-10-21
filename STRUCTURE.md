@@ -30,8 +30,6 @@ Financial_Agent/
 |   `-- services/
 |       |-- factory.py          Shared service registry and dependency injection
 |       `-- *_service.py        Deterministic analysis implementations
-|-- ui/
-|   `-- pages/                  Analyst dashboards and Agent research UI
 |-- frontend/
 |   |-- src/api.generated.ts    Types generated from the committed OpenAPI schema
 |   |-- src/api.ts              Typed fetch client over the FastAPI boundary
@@ -60,8 +58,8 @@ Financial_Agent/
 
 ## Layering Rules
 
-1. UI pages call FastAPI through `ui/api_client.py`; they do not instantiate
-   analysis services.
+1. The React workbench (`frontend/`) calls FastAPI through `frontend/src/api.ts`;
+   it does not instantiate analysis services.
 2. API routes obtain services from `app/services/factory.py` and move blocking
    work to FastAPI's thread pool.
 3. Services depend on the `DataLoader` facade, not a concrete source.
