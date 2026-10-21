@@ -14,9 +14,9 @@ here — merged PRs carry that.
 | --- | --- | --- |
 | repo | `johnny861110/Financial_Agent` | `johnny861110/FinancialReports` |
 | local | `/mnt/c/Users/johnn/GITHUB_REPO/Financial_Agent` | `/mnt/c/Users/johnn/GITHUB_REPO/FinancialReports` |
-| latest merged PR | #17 | #10 |
-| open work | `feat/resolve-company-names` (pushed, PR not yet merged) | none |
-| tests | 224 | 172 |
+| latest merged PR | #22 | #12 |
+| open work | none | none |
+| tests | 238 | 197 |
 | CI | gates + cross-repo smoke | gates on 3.10/3.11/3.12 |
 
 **GitHub is back** (the suspension noted in earlier versions of this file is
@@ -55,6 +55,10 @@ tool orchestration and the final answer. **The boundary is HTTP only.**
 | React research workbench (Streamlit `ui/` is gone) | `frontend/` |
 | Ticker validation; company name → code resolution | `app/agents/workflow.py` (`_TICKER_PATTERN`, `_codes_named_in`) |
 | Company names / industry / market from TWSE+TPEx open data | `FinancialReports/src/sources/mops_client.py`, `fr backfill-companies` |
+| One identity builder for snapshot, refresh, job and batch | `FinancialReports/src/api/service.py` (`build_identity`) |
+| `stale` = held copy predates the quarter's filing deadline + grace | `FinancialReports/src/api/freshness.py` |
+| Peer comparison as per-company evidence rows | `app/agents/tools.py` (`tool_peer_compare`) |
+| Citation / empty-section rules enforced on every answer | `app/agents/workflow.py` (`_enforce_answer_rules`) |
 | Fixed evaluation set and metrics | `evaluation/` |
 | Upright-flag repair in PDF text extraction | `FinancialReports/src/parsers/pdf_text_parser.py` |
 | Legibility-scaled chunk importance | `FinancialReports/src/parsers/pdf_section_parser.py` |
@@ -94,32 +98,18 @@ Two things the old write-up of it would get wrong, both found by measuring:
 
 ## 3. Next, in priority order
 
-### 3.0 Open from 2026-10-21 — finish these first
+### 3.0 Known leftovers — small, none blocking
 
-1. ~~Merge `feat/resolve-company-names`.~~ Done: merged as #18 (name → code
-   resolution, and the peer summary naming the real leader).
-2. ~~Refresh the filings that never got a source document.~~ Done
-   2026-10-21: 2330 and 2379 2026Q2 refreshed (184 / 193 chunks, validation
-   0.82) and embedded with `fr embed --stock`; retrieval is semantic. 7418
-   2026Q1 is left alone: doc.twse answers 檔案不存在 and 7418 is in neither
-   the TWSE nor the TPEx list (likely emerging-board). The agent's auto mode
-   refuses the refresh POST as a shared-resource change, so the user runs it.
-   Refresh does **not** embed — always follow it with `fr embed`.
-3. ~~The research answer under-reports peer comparisons.~~ Fixed on
-   `fix/peer-answer-coverage`: the peer tool returned no evidence, so the
-   executor filled in the primary company's rows and the composer never saw a
-   peer value. It now emits `peer_comparison` rows (company, metric, rank),
-   kept ahead of the evidence budget. Verified live for 聯發科 vs 台積電.
-4. **`stale` means "pipeline last ran > 24h ago"** (`FinancialReports
-   src/api/service.py:277`, `stale_after_seconds=86400` in `contracts.py:82`),
-   so every filing is stale a day after any refresh — and this agent turns
-   stale into a "latest data is stale" risk plus a confidence penalty, on
-   settled quarters. Decided 2026-10-21: stale means the held copy predates
-   the quarter's statutory deadline (Q1 5/15, Q2 8/14, Q3 11/14, Q4 next 3/31)
-   plus 14 days' grace, once that point has passed. FinancialReports branch
-   `fix/stale-means-not-final` (193 tests pass; same response fields, so no
-   change here). Under it 0 of 70 filings are stale, against 70 today. After
-   it merges, rebuild the producer image (§4) — it does not mount source.
+- **7418 2026Q1 has no source document** and stays `extracted` (its snapshot
+  answers 409). doc.twse answers 檔案不存在 and 7418 is in neither the TWSE nor
+  the TPEx company list — likely emerging-board. Leave it unless a source for
+  emerging-board filings is added.
+- **`stale_after_seconds` defaults to 86400 in `FinancialReports
+  src/api/contracts.py`** while responses now carry the grace period
+  (1,209,600). Only the type default disagrees; aligning it means re-exporting
+  the OpenAPI baseline.
+- **Unknown companies' `company_name` is the stock code**, because the field is
+  required by the contract. The `_zh`/`_en`/industry/market fields are null.
 
 ### 3.1 Unsupported-claim rate — the missing evaluation
 
@@ -210,16 +200,29 @@ export FR_DATABASE_URL="postgresql+psycopg://financial:financial@localhost:5433/
 uv run uvicorn src.api.app:create_app --factory --host 127.0.0.1 --port 8010
 ```
 
-The `financialreports_pgdata` volume holds the corpus: **19,177 chunks, all
-embedded** with `BAAI/bge-base-zh-v1.5`, zero duplicates, 71 filings
-`insight_ready`. It is local only — not committed, not deployed.
+The `financialreports_pgdata` volume holds the corpus (2026-10-21): **70
+filings**, 69 `insight_ready` and 7418 2026Q1 `extracted` (§3.0); **24,042
+chunks, all embedded** with `BAAI/bge-base-zh-v1.5`; 13 of 15 companies
+named. It is local only — not committed, not deployed.
 
-All 71 filings were re-ingested through
-`fr run <stock> <year> <Qn> --stages extract,validate,insights --force`
-followed by `fr embed`, so the corpus reflects the §2 parser fixes. Re-running
-that is ~40 s per filing plus one embedding pass. Re-extraction deletes a
-document's chunks and cascades to `chunk_embeddings`, so **always finish with
-`fr embed`** or the filing silently drops to importance-order retrieval.
+Re-ingesting a filing is
+`fr run <stock> <year> <Qn> --stages extract,validate,insights --force`, about
+40 s each. Re-extraction deletes a document's chunks and cascades to
+`chunk_embeddings`, so **always finish with `fr embed`** (`--stock <code>` to
+limit it; already-embedded chunks are skipped) or the filing silently drops to
+importance-order retrieval.
+
+To fetch a filing that never got a source document, refresh it through the
+API, which runs ingest → extract → validate → insights but **not** embed:
+
+```bash
+curl -s -X POST localhost:8010/v1/filings/<stock>/<period>/refresh   # -> job_id
+curl -s localhost:8010/v1/jobs/<job_id>                               # until succeeded
+FR_DATABASE_URL=... HF_HUB_OFFLINE=1 .venv/bin/fr embed --stock <stock>
+```
+
+Claude Code's auto mode refuses that POST as a shared-resource change; the
+user runs it with `! curl ...`. Refreshing a settled quarter changes nothing.
 
 ### Gates
 
@@ -321,9 +324,33 @@ re-run a peer comparison and a named-company research query live.
 today; if a non-numeric ticker is added, validate against the provider's stock
 list instead of widening the regex — widening it lets "TSMC" through.
 
-**`stale` does not mean the data is out of date.** It means the pipeline last
-ran more than 24 hours ago. 2025Q4 for 2330 is settled and reads stale; a
-refresh only moves `updated_at` and is stale again the next day.
+**A flag nobody can clear stops carrying information, and the agent acted on
+it anyway.** Until 2026-10-21 the producer's `stale` meant "fetched more than
+24 hours ago", so all 70 filings were stale. This agent turned that into a
+"latest data is stale" risk and a confidence penalty on quarters final for
+months. It now means the held copy predates the quarter's filing deadline
+plus 14 days (`FR_STALE_GRACE_DAYS`); 0 filings are stale. If stale ever
+reads true for a settled quarter again, suspect the definition first.
+
+**A rule in the prompt is a request, not a guarantee.** The composer prompt
+forbids attaching a passage citation to a figure and writing "矛盾：無"; the
+model did both, and also shortened `[市場風險 · p.39 · chunk 123]` to
+`【市場風險 · p.39】`, which a check keyed on chunk ids would miss.
+`_enforce_answer_rules` now removes these after the answer exists and logs
+each removal (`Composer broke an answer rule`). A rule that decides whether an
+answer can be trusted belongs in code; check the logs after changing the
+prompt.
+
+**A tool that returns no evidence silently borrows the primary company's.**
+The research executor fills a tool's empty `evidence` with the state's
+evidence. The peer tool returned none, so the composer saw only 2454's figures
+and answered "比較聯發科和台積電" about 聯發科 alone. Any new multi-company
+tool must emit its own rows.
+
+**`detect_changes` on a stale index reports symbols you never touched.** An
+insertion shifts every later line, and the stale index maps those lines to the
+wrong symbols (47 "changed" for a two-hunk diff). Run `gitnexus analyze` after
+merging, and read `git diff -U0 | grep ^@@` when the count looks wrong.
 
 **A suite that skips its integration tests still exits 0 -- both repos had
 this, and both now fail loudly instead.** FinancialReports without
@@ -340,7 +367,7 @@ which resolves only inside the compose network -- and pytest does not read
 
 Unreachable dependencies are now errors on both sides, with an explicit
 opt-out: `FA_ALLOW_SMOKE_SKIP=1` here, `FR_ALLOW_DB_SKIP=1` there. Configured
-runs are 222 and 150.
+runs are 238 and 197 (2026-10-21).
 
 **Two config files disagree with the code about sampling temperature.**
 `docker-compose.yaml` defaulted `LLM_TEMPERATURE` to 1.0 against `config.py`
@@ -450,8 +477,8 @@ provider protocol, CanonicalFinancialContext, the eight migrated services, the
 tool-eligibility gate, the retrieval path, or the chunk-legibility work just
 landed in FinancialReports/src/parsers/.
 
-Finish section 3.0 first (the open items from 2026-10-21), and remember that
-port 8000 runs the checked-out branch. Then section 3.1: unsupported-claim
+Remember that port 8000 runs the checked-out branch. Section 3.0 lists small
+known leftovers; none blocks. Start with section 3.1: unsupported-claim
 rate is the one evaluation still missing, and it is the measure that would catch the agent asserting something
 no evidence supports. It needs a harness running with LLM_ENABLED=true that
 checks each claim in an answer against the report and the retrieved passages.
