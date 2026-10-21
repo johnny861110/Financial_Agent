@@ -1,6 +1,6 @@
 # Next Session Handoff
 
-**Last updated:** 2026-09-06
+**Last updated:** 2026-10-21
 
 Read this first. It states what exists, what to do next, and the traps that
 have already cost time. It is deliberately not a history of how things got
@@ -14,35 +14,25 @@ here — merged PRs carry that.
 | --- | --- | --- |
 | repo | `johnny861110/Financial_Agent` | `johnny861110/FinancialReports` |
 | local | `/mnt/c/Users/johnn/GITHUB_REPO/Financial_Agent` | `/mnt/c/Users/johnn/GITHUB_REPO/FinancialReports` |
-| latest merged PR | #15 | #7 |
-| working branch | `feat/react-research-workbench` (21 ahead) | `fix/schedule-section-detection` (22 ahead) |
-| tests | 194 | 150 |
-| CI | gates + cross-repo smoke, green | gates on 3.10/3.11/3.12, green |
+| latest merged PR | #17 | #10 |
+| open work | `feat/resolve-company-names` (pushed, PR not yet merged) | none |
+| tests | 224 | 172 |
+| CI | gates + cross-repo smoke | gates on 3.10/3.11/3.12 |
 
-**Nothing is pushed: the GitHub account is suspended.** Both repos carry
-substantial unpushed work on the branches above, and each repo's own
-documentation is the durable record until that changes —
-`FinancialReports/docs/CHANGE-RECORD-2026-09-06.md` in particular.
-
-**Unpushed local commits exist in both repos.** The corpus-legibility fix (the
-item that used to be §3.1) landed as two commits on `FinancialReports/main`,
-and this handoff as two on `Financial_Agent/main`, all with the gates in §4
-green locally, none pushed and no PR opened — that was left for you to decide.
-So neither repo is `0/0` right now; both are ahead of `origin/main`. PR numbers
-are used rather than commit SHAs because any SHA written here is stale the
-moment the file is committed. Confirm the real state at session start:
+**GitHub is back** (the suspension noted in earlier versions of this file is
+over). Everything is pushed; there is no `gh` CLI here by choice — push with
+git and open PRs from the `pull/new/<branch>` link. PR numbers are used rather
+than commit SHAs because any SHA written here is stale the moment the file is
+committed. Confirm the real state at session start:
 
 ```bash
 git rev-parse HEAD origin/main && git status --short
 ```
 
-**Do not delete or commit these pre-existing untracked paths.** They are not
-this project's to manage:
-
-```text
-Financial_Agent:    .claude/  AGENTS.md  CLAUDE.md
-FinancialReports:   .claude/  AGENTS.md  CLAUDE.md  examples/batch_2025_missing.json
-```
+**Do not delete or commit `.claude/` in either repo** (it is ignored; it holds
+local tool settings). `AGENTS.md` and `CLAUDE.md` are now tracked in both
+repos; `gitnexus analyze` rewrites their index stats, and those changes go in
+their own `chore: refresh GitNexus index stats` commit, never a feature commit.
 
 ---
 
@@ -62,7 +52,9 @@ tool orchestration and the final answer. **The boundary is HTTP only.**
 | All eight deterministic services on `load_context()` | `app/services/` |
 | Tool requirements + pre-execution eligibility gate | `app/agents/tools.py` |
 | Intent-gated bounded retrieval with citations | `app/agents/retrieval.py` |
-| Display logic for citations and field states | `ui/presentation.py` |
+| React research workbench (Streamlit `ui/` is gone) | `frontend/` |
+| Ticker validation; company name → code resolution | `app/agents/workflow.py` (`_TICKER_PATTERN`, `_codes_named_in`) |
+| Company names / industry / market from TWSE+TPEx open data | `FinancialReports/src/sources/mops_client.py`, `fr backfill-companies` |
 | Fixed evaluation set and metrics | `evaluation/` |
 | Upright-flag repair in PDF text extraction | `FinancialReports/src/parsers/pdf_text_parser.py` |
 | Legibility-scaled chunk importance | `FinancialReports/src/parsers/pdf_section_parser.py` |
@@ -101,6 +93,31 @@ Two things the old write-up of it would get wrong, both found by measuring:
 ---
 
 ## 3. Next, in priority order
+
+### 3.0 Open from 2026-10-21 — finish these first
+
+1. **Merge `feat/resolve-company-names`.** Name → code resolution, and a peer
+   fix that matters on its own: since the company-name backfill, the peer
+   summary declared the *first listed* company the leader ("2454, top rank in
+   0 metrics" for a comparison TSMC won on every metric). Until it merges,
+   main gives that wrong answer — and see §5 on what is actually serving 8000.
+2. **Refresh the three filings that never got a source document**, so their
+   snapshot stops answering 409 `filing_has_no_source_documents`:
+   2330 2026Q2 and 2379 2026Q2 (doc.twse now lists 2330's PDF), and 7418
+   2026Q1, which is in neither the TWSE nor the TPEx company list (likely
+   emerging-board) — check doc.twse for it before trying. Refresh does **not**
+   embed: run `fr embed` afterwards (see §4) or those filings serve
+   importance-order retrieval. Refreshing *settled* quarters is pointless —
+   see "stale" in §5.
+3. **The research answer under-reports peer comparisons.** For "比較聯發科和
+   台積電", the peer tool now correctly finds 2330 leading on 5 metrics, but the
+   composed answer describes only the primary company. A composer/prompt issue,
+   not a data one.
+4. **`stale` means "pipeline last ran > 24h ago"** (`FinancialReports
+   src/api/service.py:277`, `stale_after_seconds=86400` in `contracts.py:82`),
+   so every filing is stale a day after any refresh. Either the consumer
+   should read it as fetch age, or the producer should define it as "a newer
+   filing exists". Design decision, not yet made.
 
 ### 3.1 Unsupported-claim rate — the missing evaluation
 
@@ -208,13 +225,16 @@ document's chunks and cascades to `chunk_embeddings`, so **always finish with
 # Financial_Agent
 .venv/bin/pytest -q
 FINANCIAL_DATA_PATH=/tmp/nonexistent .venv/bin/pytest -q   # must also pass
-.venv/bin/mypy app/data app/agents app/api app/services app/models/agent_models.py ui/api_client.py ui/presentation.py evaluation
+.venv/bin/mypy app/data app/agents app/api app/services app/models/agent_models.py app/models/api_models.py evaluation
 .venv/bin/black --check app tests evaluation
 .venv/bin/python -m compileall -q app tests evaluation
 git -c core.whitespace=cr-at-eol diff --check
 npx gitnexus analyze --force
 
-# FinancialReports (needs FR_DATABASE_URL and a running db)
+# FinancialReports (needs a running db). Tests default to 5432, the CI port;
+# locally the db is on 5433, so point the disposable test database there --
+# without it, 67 tests error with ConnectionTimeout and look like a regression.
+export FR_TEST_DATABASE_URL=postgresql+psycopg://financial:financial@localhost:5433/financial
 uv run ruff check src/ tests/ scripts/
 uv run ruff format --check src/ tests/ scripts/
 uv run mypy src/ --ignore-missing-imports
@@ -234,6 +254,19 @@ uv run python scripts/golden_check.py
 docker compose up -d          # -> workbench http://localhost:8080, API :8000
 ```
 
+**On this machine the API runs the working tree, not the image.** A local,
+gitignored `docker-compose.override.yaml` (a copy of `docker-compose.dev.yaml`)
+mounts `./app` and runs uvicorn with `--reload`, so edits apply without a
+rebuild. Delete it and `docker compose up -d api` to go back to the image.
+
+```bash
+# FinancialReports image: build on the host network. Its compose has no
+# `network: host`, and docker0's MTU (1500) exceeds eth0's (1280), so
+# `docker compose build` stalls mid-download.
+docker build --network host -t financialreports-api:latest .
+docker compose up -d --no-build api
+```
+
 CI runs these on every PR and is the authority. It installs with
 `uv sync --frozen`, so a local `.venv` that has drifted from `uv.lock` can
 disagree with it — `uv lock --check` has its own CI job for that.
@@ -249,6 +282,46 @@ python -m evaluation      # exits non-zero if any measure is not exact
 ## 5. Traps that have already cost time
 
 Every one of these was found by running something, not by reading code.
+
+**Port 8000 serves whatever branch is checked out.** Because of the compose
+override in §4, `git switch` changes live behaviour within seconds — switching
+to a main that lacks an unmerged fix silently reverts it in the running
+service. "It works in the container" no longer proves the image works either;
+`./scripts/container_smoke.sh` still tests the image.
+
+**The embedding model lives only in the host's HF cache, and the producer
+cannot fetch it.** `financialreports-api` mounts `~/.cache/huggingface` with
+`HF_HUB_OFFLINE=1`. On 2026-09-18 that directory was deleted; docker recreated
+the bind-mount source as an **empty, root-owned** directory, and every question
+silently fell back to importance ordering (`retrieval.mode` is not `semantic`,
+`retrieval_score` null, and the agent's `data_gaps` says "embedding model is
+unavailable"). Fix: give the directory back to uid 1000
+(`docker exec -u root financialreports-api-1 chown 1000:1000 /home/appuser/.cache/huggingface`)
+and `.venv/bin/huggingface-cli download BAAI/bge-base-zh-v1.5`. No restart needed.
+Clearing `~/.cache` breaks RAG again.
+
+**A placeholder written as data is never corrected.** When MOPS refused the
+company-info lookup, the producer stored the stock code as the company name;
+the next lookup found the row and stopped, so all 15 companies were named by
+their codes for weeks. MOPS's `ajax_t05st03` and `ajax_t164sb03` now answer
+"FOR SECURITY REASONS, THIS PAGE CAN NOT BE ACCESSED" with HTTP 200 — check the
+body, not the status. The pipeline does not depend on either: PDFs come from
+doc.twse and facts from FinMind. XBRL URLs are all 404 and always were.
+
+**Fixing data can surface a latent bug downstream.** Backfilling real names
+broke the peer summary, which had matched stock codes against company names as
+text and only worked while names *were* codes. After any producer data change,
+re-run a peer comparison and a named-company research query live.
+
+**`_TICKER_PATTERN` accepts only `\d{4,6}[A-Z]?`.** That is what stops an LLM's
+"台積電" overwriting `2330`, but it would also reject an alphabetic code such as
+`TSLA` (see the filing-key note below). `/v1/stocks` holds only numeric codes
+today; if a non-numeric ticker is added, validate against the provider's stock
+list instead of widening the regex — widening it lets "TSMC" through.
+
+**`stale` does not mean the data is out of date.** It means the pipeline last
+ran more than 24 hours ago. 2025Q4 for 2330 is settled and reads stale; a
+refresh only moves `updated_at` and is stale again the next day.
 
 **A suite that skips its integration tests still exits 0 -- both repos had
 this, and both now fail loudly instead.** FinancialReports without
@@ -375,8 +448,9 @@ provider protocol, CanonicalFinancialContext, the eight migrated services, the
 tool-eligibility gate, the retrieval path, or the chunk-legibility work just
 landed in FinancialReports/src/parsers/.
 
-Start with section 3.1: unsupported-claim rate is the one evaluation still
-missing, and it is the measure that would catch the agent asserting something
+Finish section 3.0 first (the open items from 2026-10-21), and remember that
+port 8000 runs the checked-out branch. Then section 3.1: unsupported-claim
+rate is the one evaluation still missing, and it is the measure that would catch the agent asserting something
 no evidence supports. It needs a harness running with LLM_ENABLED=true that
 checks each claim in an answer against the report and the retrieved passages.
 Note that this spends the user's API credits -- say so before running it.
