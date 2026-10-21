@@ -96,28 +96,33 @@ Two things the old write-up of it would get wrong, both found by measuring:
 
 ### 3.0 Open from 2026-10-21 — finish these first
 
-1. **Merge `feat/resolve-company-names`.** Name → code resolution, and a peer
-   fix that matters on its own: since the company-name backfill, the peer
-   summary declared the *first listed* company the leader ("2454, top rank in
-   0 metrics" for a comparison TSMC won on every metric). Until it merges,
-   main gives that wrong answer — and see §5 on what is actually serving 8000.
+1. ~~Merge `feat/resolve-company-names`.~~ Done: merged as #18 (name → code
+   resolution, and the peer summary naming the real leader).
 2. **Refresh the three filings that never got a source document**, so their
    snapshot stops answering 409 `filing_has_no_source_documents`:
-   2330 2026Q2 and 2379 2026Q2 (doc.twse now lists 2330's PDF), and 7418
-   2026Q1, which is in neither the TWSE nor the TPEx company list (likely
-   emerging-board) — check doc.twse for it before trying. Refresh does **not**
+   2330 2026Q2 and 2379 2026Q2 (doc.twse lists both PDFs as of 2026-10-21).
+   Skip 7418 2026Q1: doc.twse answers 檔案不存在 and 7418 is in neither the
+   TWSE nor the TPEx company list (likely emerging-board). The agent's auto
+   mode refused the refresh POST as a shared-resource change, so the user runs
+   it. Refresh does **not**
    embed: run `fr embed` afterwards (see §4) or those filings serve
    importance-order retrieval. Refreshing *settled* quarters is pointless —
    see "stale" in §5.
-3. **The research answer under-reports peer comparisons.** For "比較聯發科和
-   台積電", the peer tool now correctly finds 2330 leading on 5 metrics, but the
-   composed answer describes only the primary company. A composer/prompt issue,
-   not a data one.
+3. ~~The research answer under-reports peer comparisons.~~ Fixed on
+   `fix/peer-answer-coverage`: the peer tool returned no evidence, so the
+   executor filled in the primary company's rows and the composer never saw a
+   peer value. It now emits `peer_comparison` rows (company, metric, rank),
+   kept ahead of the evidence budget. Verified live for 聯發科 vs 台積電.
 4. **`stale` means "pipeline last ran > 24h ago"** (`FinancialReports
    src/api/service.py:277`, `stale_after_seconds=86400` in `contracts.py:82`),
-   so every filing is stale a day after any refresh. Either the consumer
-   should read it as fetch age, or the producer should define it as "a newer
-   filing exists". Design decision, not yet made.
+   so every filing is stale a day after any refresh — and this agent turns
+   stale into a "latest data is stale" risk plus a confidence penalty, on
+   settled quarters. Decided 2026-10-21: stale means the held copy predates
+   the quarter's statutory deadline (Q1 5/15, Q2 8/14, Q3 11/14, Q4 next 3/31)
+   plus 14 days' grace, once that point has passed. FinancialReports branch
+   `fix/stale-means-not-final` (193 tests pass; same response fields, so no
+   change here). Under it 0 of 70 filings are stale, against 70 today. After
+   it merges, rebuild the producer image (§4) — it does not mount source.
 
 ### 3.1 Unsupported-claim rate — the missing evaluation
 
