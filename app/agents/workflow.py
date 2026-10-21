@@ -31,7 +31,7 @@ MAX_PROMPT_EVIDENCE_CHARS = 12000
 # The evidence keys the answer needs to state a figure correctly. `unit` is not
 # optional here: values are in TWD thousands, and a figure quoted without it is
 # wrong by three orders of magnitude.
-_EVIDENCE_KEYS = ("field", "value", "unit", "statement", "source_type")
+_EVIDENCE_KEYS = ("field", "value", "unit", "statement", "source_type", "company", "rank")
 
 # TWSE/TPEx codes: four digits for common stock, up to six for ETFs and
 # warrants, optionally a trailing letter for preferred shares (2881A).
@@ -203,6 +203,9 @@ def _composer_report_view(report: dict) -> dict:
     evidence: list[dict] = []
     budget = MAX_PROMPT_EVIDENCE_CHARS
     rows = report.get("supporting_evidence") or []
+    # Peer rows arrive last, so the budget would cut them first, and without
+    # them a comparison is answered for the primary company alone.
+    rows = sorted(rows, key=lambda row: row.get("source_type") != "peer_comparison")
     for row in rows:
         compact = {k: row.get(k) for k in _EVIDENCE_KEYS if row.get(k) is not None}
         # Pre-rendered, because the model gets the conversion wrong. Asked for
@@ -1123,6 +1126,10 @@ Requirements:
   period. A field listed there is available: read its value and answer with it.
   Never say a figure is missing or unavailable while it is present there --
   only `data_gaps` names what is genuinely absent.
+- Rows whose source_type is `peer_comparison` compare several companies, named
+  in `company`, with `rank` 1 the best. When they are present the question is
+  a comparison: answer it for every company in them, not only the stock above,
+  and say which company leads each metric.
 - Report each figure under the field name it is filed as. Do not rename a field
   into a nearby accounting term: `current_liabilities` is not 應付帳款 and
   `current_assets` is not 應收帳款, and mislabelling one is indistinguishable

@@ -350,10 +350,28 @@ def tool_peer_compare(stock_codes: str, period: str) -> Dict[str, Any]:
     codes = [c.strip() for c in stock_codes.split(",")]
     analysis = get_tool_services().peer.compare_peers(codes, period)
     if analysis:
+        # One row per company and metric. Without them the report carried only
+        # the one-line summary, the executor filled the evidence with the primary
+        # company's figures, and asked to compare 聯發科 with 台積電 the answer
+        # described 聯發科 alone.
+        evidence = [
+            {
+                "source_type": "peer_comparison",
+                "field": c.metric_name,
+                "company": company,
+                "value": round(value, 2),
+                "unit": "percent" if "(%)" in c.metric_name else "ratio",
+                "rank": rank,
+                "period": analysis.period,
+            }
+            for c in analysis.comparisons
+            for company, value, rank in zip(c.companies, c.values, c.ranking)
+        ]
         return _result(
             "peer",
             "success",
             finding=analysis.summary,
+            evidence=evidence,
             data={
                 "period": analysis.period,
                 "comparisons": [

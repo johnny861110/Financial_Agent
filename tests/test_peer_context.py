@@ -8,6 +8,10 @@ comparison specifically, instead of contributing a fabricated 0% (the
 previous behavior for FinancialSnapshot's computed properties).
 """
 
+import inspect
+
+from app.agents.tools import configure_tool_services, tool_peer_compare
+from app.agents.workflow import FinancialAgent, _composer_report_view
 from app.core import DataLoader
 from app.services import PeerService
 from tests.helpers import RecordProvider, make_record
@@ -128,3 +132,57 @@ def test_summary_claims_no_leader_when_no_metric_resolves_to_a_peer():
     summary = service._generate_summary(analysis.comparisons, contexts)
 
     assert summary == "Peer comparison completed"
+
+
+def test_summary_names_the_leader_by_code_and_name():
+    """The comparison rows name companies; a bare code could not be tied to them."""
+    service = PeerService(DataLoader(_provider()))
+
+    analysis = service.compare_peers(["2454", "2330"], "2025Q1")
+
+    assert analysis is not None
+    assert analysis.summary.startswith("Overall leader: 2330 TSMC (")
+
+
+def test_peer_tool_reports_every_company_as_evidence(monkeypatch):
+    """
+    The tool used to return no evidence, so the executor filled in the primary
+    company's figures and the answer to "比較聯發科和台積電" described 聯發科 alone.
+    """
+    # monkeypatch restores the shared registry, so no other test sees this one.
+    monkeypatch.setattr("app.agents.tools._service_registry", None)
+    configure_tool_services(DataLoader(_provider()))
+
+    result = tool_peer_compare.invoke({"stock_codes": "2454,2330", "period": "2025Q1"})
+
+    rows = [row for row in result["evidence"] if row["field"] == "Gross Margin (%)"]
+    assert {row["company"] for row in rows} == {"TSMC", "MediaTek"}
+    assert all(row["source_type"] == "peer_comparison" for row in rows)
+    assert next(row for row in rows if row["company"] == "TSMC")["rank"] == 1
+
+
+def test_composer_keeps_peer_rows_when_the_evidence_budget_runs_out():
+    filler = [
+        {"field": f"field_{i}", "value": i, "unit": "TWD_thousands", "source_type": "finmind"}
+        for i in range(2000)
+    ]
+    peer = {
+        "field": "Gross Margin (%)",
+        "company": "TSMC",
+        "value": 50.0,
+        "unit": "percent",
+        "rank": 1,
+        "source_type": "peer_comparison",
+    }
+
+    view = _composer_report_view({"findings": [], "supporting_evidence": filler + [peer]})
+
+    assert view["supporting_evidence_omitted"] > 0
+    assert view["supporting_evidence"][0]["company"] == "TSMC"
+    assert view["supporting_evidence"][0]["rank"] == 1
+
+
+def test_composer_prompt_asks_for_every_compared_company():
+    source = inspect.getsource(FinancialAgent._answer_composer_node)
+
+    assert "answer it for every company in them" in source
