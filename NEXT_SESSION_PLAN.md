@@ -1,6 +1,6 @@
 # Next Session Handoff
 
-**Last updated:** 2026-10-21
+**Last updated:** 2026-10-22
 
 Read this first. It states what exists, what to do next, and the traps that
 have already cost time. It is deliberately not a history of how things got
@@ -14,9 +14,9 @@ here — merged PRs carry that.
 | --- | --- | --- |
 | repo | `johnny861110/Financial_Agent` | `johnny861110/FinancialReports` |
 | local | `/mnt/c/Users/johnn/GITHUB_REPO/Financial_Agent` | `/mnt/c/Users/johnn/GITHUB_REPO/FinancialReports` |
-| latest merged PR | #22 | #12 |
+| latest merged PR | #23 | #14 |
 | open work | none | none |
-| tests | 238 | 197 |
+| tests | 238 | 200 |
 | CI | gates + cross-repo smoke | gates on 3.10/3.11/3.12 |
 
 **GitHub is back** (the suspension noted in earlier versions of this file is
@@ -98,18 +98,32 @@ Two things the old write-up of it would get wrong, both found by measuring:
 
 ## 3. Next, in priority order
 
-### 3.0 Known leftovers — small, none blocking
+### 3.0 FinMind durations carry a year-to-date label on single-quarter values
 
-- **7418 2026Q1 has no source document** and stays `extracted` (its snapshot
-  answers 409). doc.twse answers 檔案不存在 and 7418 is in neither the TWSE nor
-  the TPEx company list — likely emerging-board. Leave it unless a source for
-  emerging-board filings is added.
-- **`stale_after_seconds` defaults to 86400 in `FinancialReports
-  src/api/contracts.py`** while responses now carry the grace period
-  (1,209,600). Only the type default disagrees; aligning it means re-exporting
-  the OpenAPI baseline.
-- **Unknown companies' `company_name` is the stock code**, because the field is
-  required by the contract. The `_zh`/`_en`/industry/market fields are null.
+Found 2026-10-22 while checking 7418. FR labels every duration fact with
+`quarter_to_dates` (`src/normalize/period_normalizer.py`), which assumes
+Taiwan's cumulative convention: Q2 = Jan–Jun, Q3 = Jan–Sep, Q4 = Jan–Dec. But
+FinMind's `TaiwanStockFinancialStatements` gives **single-quarter** values for
+quarterly filers. 2330 2026Q2 `eps_basic` is 27.25 with period 2026-01-01 →
+2026-06-30, while its PDF (p.33) shows 27.25 for 115年4月1日至6月30日 and 49.33
+for 1月1日至6月30日. Every `finmind` duration fact on a Q2/Q3/Q4 filing has this
+mislabel (~600 rows); Q1 is correct.
+
+The exception is an emerging-board (興櫃) company. It files no Q1 report, so
+its Q2 values really are Jan–Jun: 7418 2026Q2 `eps_basic` 2.6 matches 2.60 for
+115年1月至6月 (PDF p.22). Today both cases share the same label, so nothing
+downstream can tell a 3-month figure from a 6-month one.
+
+Impact so far is small. Financial_Agent only passes `period_start` through
+(`app/data/models.py`). 7418 (觀光餐旅) shares no industry with the rest of the
+corpus, so no peer comparison yet mixes it with a quarterly filer. Fix it in FR
+before adding more emerging-board companies or any metric that sums or
+annualises durations: label FinMind values as the single quarter, and the
+half-year when the filer has no previous-quarter report.
+
+Closed on 2026-10-22 (FR #14 and the data steps after it): the 7418 Q1 shell
+is gone and its 2026Q2 report is ingested. FR reads the 興櫃 company directory.
+`stale_after_seconds` defaults to the 14-day grace period.
 
 ### 3.1 Unsupported-claim rate — the missing evaluation
 
@@ -200,10 +214,12 @@ export FR_DATABASE_URL="postgresql+psycopg://financial:financial@localhost:5433/
 uv run uvicorn src.api.app:create_app --factory --host 127.0.0.1 --port 8010
 ```
 
-The `financialreports_pgdata` volume holds the corpus (2026-10-21): **70
-filings**, 69 `insight_ready` and 7418 2026Q1 `extracted` (§3.0); **24,042
-chunks, all embedded** with `BAAI/bge-base-zh-v1.5`; 13 of 15 companies
-named. It is local only — not committed, not deployed.
+The `financialreports_pgdata` volume holds the corpus (2026-10-22): **70
+filings, all `insight_ready`**; **24,152 chunks, all embedded** with
+`BAAI/bge-base-zh-v1.5`; 14 of 15 companies named (the 15th, 9999, is a test
+row with no filings). 7418 香繼光 is emerging-board (興櫃): it files only
+half-year and annual reports, so it has no Q1/Q3 filings, and its 2026Q2
+figures are Jan–Jun (§3.0). It is local only — not committed, not deployed.
 
 Re-ingesting a filing is
 `fr run <stock> <year> <Qn> --stages extract,validate,insights --force`, about
@@ -367,7 +383,7 @@ which resolves only inside the compose network -- and pytest does not read
 
 Unreachable dependencies are now errors on both sides, with an explicit
 opt-out: `FA_ALLOW_SMOKE_SKIP=1` here, `FR_ALLOW_DB_SKIP=1` there. Configured
-runs are 238 and 197 (2026-10-21).
+runs are 238 and 200 (2026-10-22).
 
 **Two config files disagree with the code about sampling temperature.**
 `docker-compose.yaml` defaulted `LLM_TEMPERATURE` to 1.0 against `config.py`
@@ -477,8 +493,9 @@ provider protocol, CanonicalFinancialContext, the eight migrated services, the
 tool-eligibility gate, the retrieval path, or the chunk-legibility work just
 landed in FinancialReports/src/parsers/.
 
-Remember that port 8000 runs the checked-out branch. Section 3.0 lists small
-known leftovers; none blocks. Start with section 3.1: unsupported-claim
+Remember that port 8000 runs the checked-out branch. Section 3.0 describes a
+period-label bug in FinancialReports' FinMind facts; it does not block, but
+fix it before summing or annualising durations. Start with section 3.1: unsupported-claim
 rate is the one evaluation still missing, and it is the measure that would catch the agent asserting something
 no evidence supports. It needs a harness running with LLM_ENABLED=true that
 checks each claim in an answer against the report and the retrieved passages.
