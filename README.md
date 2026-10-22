@@ -664,7 +664,7 @@ before the prompt is not a passage anyone received.
 | Canonical financial context | Phase 1 implemented | Indexed facts, units, field states, validation, metrics, freshness, and evidence with legacy JSON compatibility. |
 | Snapshot analysis | Context-aware | Uses canonical facts/metrics and exposes field states plus failed validation. |
 | Trend analysis | Context-aware | Uses available canonical observations without manufacturing zero for missing derived metrics. |
-| Peer comparison | Implemented | Requires at least two loaded companies. |
+| Peer comparison | Implemented | Requires at least two loaded companies. Emits one evidence row per company and metric, so a research answer covers every company compared. |
 | Management score | Implemented | Input-driven governance scoring. |
 | Earnings quality | Implemented with source-data constraints | Returns `422` when required fields are missing. |
 | ROIC/WACC | Implemented with proxy assumptions | Uses CAPM-style defaults and book-value capital weights. |
@@ -673,7 +673,7 @@ before the prompt is not a passage anyone received.
 | Capital allocation | Partial | Debt change is still a placeholder. |
 | FinancialReports producer API | Merged and locally validated | Versioned schema, discovery, filing/context, refresh/jobs, batch query, and committed OpenAPI; target deployment remains environment-specific. |
 | FinancialReports provider | Implemented | Full v1 identity/fact/provenance schema, pagination, processing state, retry, cache, stale mode, and JSON fallback. |
-| LangGraph agent | Implemented | Data readiness, deterministic planning, multi-tool research, contradiction checks, and LLM fallback. |
+| LangGraph agent | Implemented | Data readiness, deterministic planning, multi-tool research, contradiction checks, and LLM fallback. Resolves company names (台積電 → 2330) from the producer's stock list, and removes passage citations attached to figures, citations to unretrieved passages, and empty sections from every composed answer. |
 | Langfuse tracing | Optional | Controlled by env vars. |
 | Sentiment / guidance tools | Not supported | Explicitly return `not_supported`; no fabricated neutral result. |
 | Filing-text retrieval | Implemented | Narrative only; numbers come from the canonical fields. Reports `retrieval.state` so a fallback ranking is visible, and `corpus_version` so stale citations are detectable. |
